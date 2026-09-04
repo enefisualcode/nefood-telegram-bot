@@ -2,7 +2,7 @@
 
 A Telegram bot that recognises the foods in a photo using the Google Gemini API.
 
-**Current phase: 3B — deterministic nutrition with USDA fallback.** The bot detects visible
+**Current phase: 3C — edible portion (BDD) infrastructure.** The bot detects visible
 foods, estimates portions, and — after the user confirms — calculates nutrition from a
 local curated database.
 
@@ -24,6 +24,26 @@ accepted, and each candidate must pass explicit include/exclude token rules. A U
 failure (timeout, 429, bad JSON, missing nutrient, no safe match) affects only that
 one food — the rest of the meal still totals. Results are cached in memory for the
 process lifetime. Without `USDA_API_KEY` the fallback is simply skipped.
+
+### Edible portion (BDD)
+
+Some estimates are gross weight (a chicken piece includes bone), while nutrition
+databases describe the edible portion. Each record declares:
+
+- `weight_basis`: `gross` (may need correction) or `edible` (already edible mass)
+- `edible_portion_factor`: decimal in (0, 1]
+- `edible_portion_status`: `verified` | `provisional` | `not_applicable`
+- `edible_portion_source` / `edible_portion_source_reference`
+
+A factor is applied **only** when `weight_basis` is `gross` AND
+`edible_portion_status` is `verified`. Otherwise the original grams are used
+unchanged and `edible_portion_applied` is recorded as false. The vision model never
+supplies a BDD factor. The original estimate is always preserved alongside the
+adjusted one, as `estimated_gross_grams` and `calculated_edible_grams`.
+
+**No verified BDD factor is currently shipped**, so no correction is applied to any
+food today. `ayam_goreng` is marked `weight_basis: gross` to record that it will
+need one once an official figure (TKPI / Kemenkes) can be verified.
 
 ### Data status — read before trusting any number
 

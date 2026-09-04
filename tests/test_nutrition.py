@@ -11,12 +11,16 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from services.food_matcher import (
+    EDIBLE,
+    GROSS,
+    NOT_APPLICABLE,
     PROVISIONAL,
     VERIFIED,
     FoodMatcher,
     FoodRecord,
     get_matcher,
     normalize,
+    valid_factor,
 )
 from services.food_vision import DetectedFood
 from services.nutrition_calculator import (
@@ -27,6 +31,7 @@ from services.nutrition_calculator import (
     UNVERIFIED,
     Nutrition,
     calculate_meal,
+    resolve_edible_grams,
     scale,
 )
 from services.usda_food_data import (
@@ -75,6 +80,52 @@ PROVISIONAL_CHICKEN = FoodRecord(
     carbs_per_100g=8.4,
     fat_per_100g=15.2,
     data_status=PROVISIONAL,
+)
+
+# Gross-weight chicken with a VERIFIED edible portion factor. 0.70 is an
+# arbitrary example value for exercising the arithmetic, not a sourced BDD figure.
+BDD_CHICKEN = FoodRecord(
+    id="ayam_goreng",
+    name="Ayam goreng",
+    aliases=[],
+    calories_per_100g=200.0,
+    protein_per_100g=20.0,
+    carbs_per_100g=10.0,
+    fat_per_100g=5.0,
+    data_status=VERIFIED,
+    edible_portion_factor=0.70,
+    edible_portion_status=VERIFIED,
+    weight_basis=GROSS,
+    edible_portion_source="Example source",
+    edible_portion_source_reference="Example reference",
+)
+# Same, but the factor is only provisional: it must never be applied.
+BDD_PROVISIONAL = FoodRecord(
+    id="ayam_goreng",
+    name="Ayam goreng",
+    aliases=[],
+    calories_per_100g=200.0,
+    protein_per_100g=20.0,
+    carbs_per_100g=10.0,
+    fat_per_100g=5.0,
+    data_status=VERIFIED,
+    edible_portion_factor=0.70,
+    edible_portion_status=PROVISIONAL,
+    weight_basis=GROSS,
+)
+# A verified factor on an already-edible weight: must not be applied again.
+BDD_ALREADY_EDIBLE = FoodRecord(
+    id="ayam_goreng",
+    name="Ayam goreng",
+    aliases=[],
+    calories_per_100g=200.0,
+    protein_per_100g=20.0,
+    carbs_per_100g=10.0,
+    fat_per_100g=5.0,
+    data_status=VERIFIED,
+    edible_portion_factor=0.70,
+    edible_portion_status=VERIFIED,
+    weight_basis=EDIBLE,
 )
 
 # A disabled client: no API key, so no HTTP is ever attempted.
@@ -636,6 +687,174 @@ class MixedSourceMealTest(unittest.TestCase):
         self.assertEqual(meal.total.rounded().calories, 419)  # 130 + 289
 
 
+class FactorValidationTest(unittest.TestCase):
+    def test_accepts_values_in_range(self):
+        self.assertEqual(valid_factor(0.7), 0.7)
+        self.assertEqual(valid_factor(1), 1.0)
+        self.assertEqual(valid_factor("0.55"), 0.55)
+
+    def test_rejects_out_of_range(self):
+        for bad in (0, -0.1, 1.01, 2, -1):
+            with self.subTest(value=bad):
+                self.assertIsNone(valid_factor(bad))
+
+    def test_rejects_non_numeric(self):
+        for bad in (None, "", "abc", [], {}):
+            with self.subTest(value=bad):
+                self.assertIsNone(valid_factor(bad))
+
+    def test_record_with_invalid_factor_is_not_treated_as_verified(self):
+        record = FoodRecord(
+            id="x", name="X", aliases=[], calories_per_100g=1.0, protein_per_100g=1.0,
+            carbs_per_100g=1.0, fat_per_100g=1.0, data_status=VERIFIED,
+            edible_portion_factor=1.5, edible_portion_status=VERIFIED,
+            weight_basis=GROSS,
+        )
+        self.assertFalse(record.has_verified_edible_portion)
+
+
+class EdiblePortionTest(unittest.TestCase):
+    """Only a verified factor on a gross weight may change the grams."""
+
+    def test_verified_factor_is_applied(self):
+        grams, factor, applied = resolve_edible_grams(BDD_CHICKEN, 140)
+        self.assertEqual(grams, 98)  # 140 * 0.70
+        self.assertEqual(factor, 0.70)
+        self.assertTrue(applied)
+
+    def test_provisional_factor_is_not_applied(self):
+        grams, factor, applied = resolve_edible_grams(BDD_PROVISIONAL, 140)
+        self.assertEqual(grams, 140)
+        self.assertIsNone(factor)
+        self.assertFalse(applied)
+
+    def test_edible_basis_is_not_adjusted_again(self):
+        grams, factor, applied = resolve_edible_grams(BDD_ALREADY_EDIBLE, 140)
+        self.assertEqual(grams, 140)
+        self.assertFalse(applied)
+
+    def test_no_record_leaves_grams_unchanged(self):
+        grams, factor, applied = resolve_edible_grams(None, 140)
+        self.assertEqual(grams, 140)
+        self.assertFalse(applied)
+
+    def test_record_without_factor_leaves_grams_unchanged(self):
+        grams, factor, applied = resolve_edible_grams(CHICKEN, 140)
+        self.assertEqual(grams, 140)
+        self.assertFalse(applied)
+
+    def test_edible_grams_round_half_up(self):
+        # 145 * 0.7 = 101.5, which must round up to 102.
+        grams, _, _ = resolve_edible_grams(BDD_CHICKEN, 145)
+        self.assertEqual(grams, 102)
+        self.assertIsInstance(grams, int)
+
+    def test_factor_of_one_is_valid_and_changes_nothing(self):
+        record = FoodRecord(
+            id="x", name="X", aliases=[], calories_per_100g=1.0, protein_per_100g=1.0,
+            carbs_per_100g=1.0, fat_per_100g=1.0, data_status=VERIFIED,
+            edible_portion_factor=1.0, edible_portion_status=VERIFIED,
+            weight_basis=GROSS,
+        )
+        grams, factor, applied = resolve_edible_grams(record, 140)
+        self.assertEqual(grams, 140)
+        self.assertTrue(applied)
+
+
+class EdiblePortionCalculationTest(unittest.TestCase):
+    """Nutrition must be calculated from the edible grams."""
+
+    def test_nutrition_uses_edible_grams(self):
+        meal = run(
+            calculate_meal([detected("ayam goreng", 140)], FoodMatcher([BDD_CHICKEN]), NO_USDA)
+        )
+        item = meal.items[0]
+        self.assertTrue(item.edible_portion_applied)
+        self.assertEqual(item.calculated_edible_grams, 98)
+        # 200 kcal/100 g * 98 g = 196, not 280 from the gross weight.
+        self.assertEqual(item.nutrition.rounded().calories, 196)
+        self.assertEqual(meal.total.rounded().calories, 196)
+
+    def test_original_estimate_is_preserved(self):
+        meal = run(
+            calculate_meal([detected("ayam goreng", 140)], FoodMatcher([BDD_CHICKEN]), NO_USDA)
+        )
+        item = meal.items[0]
+        self.assertEqual(item.estimated_gross_grams, 140)
+        self.assertEqual(item.calculated_edible_grams, 98)
+        self.assertEqual(item.edible_portion_factor, 0.70)
+
+    def test_provisional_factor_does_not_change_totals(self):
+        meal = run(
+            calculate_meal(
+                [detected("ayam goreng", 140)], FoodMatcher([BDD_PROVISIONAL]), NO_USDA
+            )
+        )
+        item = meal.items[0]
+        self.assertFalse(item.edible_portion_applied)
+        self.assertEqual(item.calculated_edible_grams, 140)
+        self.assertEqual(meal.total.rounded().calories, 280)  # full 140 g
+
+    def test_no_factor_uses_original_grams(self):
+        meal = run(
+            calculate_meal([detected("ayam goreng", 100)], FoodMatcher([CHICKEN]), NO_USDA)
+        )
+        item = meal.items[0]
+        self.assertFalse(item.edible_portion_applied)
+        self.assertEqual(item.estimated_gross_grams, 100)
+        self.assertEqual(item.calculated_edible_grams, 100)
+
+    def test_provenance_survives_the_adjustment(self):
+        meal = run(
+            calculate_meal([detected("ayam goreng", 140)], FoodMatcher([BDD_CHICKEN]), NO_USDA)
+        )
+        record = meal.items[0].record
+        self.assertEqual(record.edible_portion_source, "Example source")
+        self.assertEqual(record.edible_portion_source_reference, "Example reference")
+        self.assertEqual(record.edible_portion_status, VERIFIED)
+
+    def test_bdd_applies_on_the_usda_path_too(self):
+        """The factor describes the food, not the nutrition source."""
+        client = fake_usda(ok_handler)
+        # Provisional nutrition (so USDA is used) but a verified BDD factor.
+        record = FoodRecord(
+            id="ayam_goreng", name="Ayam goreng", aliases=[],
+            calories_per_100g=1.0, protein_per_100g=1.0, carbs_per_100g=1.0,
+            fat_per_100g=1.0, data_status=PROVISIONAL,
+            edible_portion_factor=0.5, edible_portion_status=VERIFIED,
+            weight_basis=GROSS,
+        )
+        meal = run(calculate_meal([detected("ayam goreng", 200)], FoodMatcher([record]), client))
+        item = meal.items[0]
+        self.assertEqual(item.source, SOURCE_USDA)
+        self.assertTrue(item.edible_portion_applied)
+        self.assertEqual(item.calculated_edible_grams, 100)
+        self.assertEqual(meal.total.rounded().calories, 289)
+
+    def test_mixed_meal_with_bdd_plain_and_unavailable(self):
+        meal = run(
+            calculate_meal(
+                [
+                    detected("ayam goreng", 140),  # verified + verified BDD
+                    detected("nasi putih", 100),   # verified, no BDD
+                    detected("sambal", 30),        # nothing at all
+                ],
+                FoodMatcher([BDD_CHICKEN, RICE]),
+                NO_USDA,
+            )
+        )
+        chicken, rice, sambal = meal.items
+        self.assertTrue(chicken.edible_portion_applied)
+        self.assertEqual(chicken.calculated_edible_grams, 98)
+        self.assertFalse(rice.edible_portion_applied)
+        self.assertEqual(rice.calculated_edible_grams, 100)
+        self.assertEqual(sambal.status, UNMATCHED)
+        self.assertFalse(sambal.edible_portion_applied)
+        self.assertEqual(sambal.estimated_gross_grams, 30)
+        # 196 (98 g chicken) + 130 (100 g rice)
+        self.assertEqual(meal.total.rounded().calories, 326)
+
+
 class RealDatabaseTest(unittest.TestCase):
     """The shipped data/foods.json must load and be internally consistent."""
 
@@ -672,6 +891,24 @@ class RealDatabaseTest(unittest.TestCase):
             with self.subTest(food=record.id):
                 self.assertNotEqual(meal.items[0].source, SOURCE_LOCAL)
                 self.assertEqual(meal.total.rounded().calories, 0)
+
+    def test_verified_bdd_factor_must_cite_a_source(self):
+        for record in self.matcher.records:
+            with self.subTest(food=record.id):
+                if record.has_verified_edible_portion:
+                    self.assertTrue(
+                        record.edible_portion_source.strip(),
+                        "a verified BDD factor must cite its source",
+                    )
+
+    def test_every_record_declares_a_valid_weight_basis(self):
+        for record in self.matcher.records:
+            with self.subTest(food=record.id):
+                self.assertIn(record.weight_basis, (GROSS, EDIBLE))
+                self.assertIn(
+                    record.edible_portion_status,
+                    (VERIFIED, PROVISIONAL, NOT_APPLICABLE),
+                )
 
     def test_ids_are_unique(self):
         ids = [r.id for r in self.matcher.records]

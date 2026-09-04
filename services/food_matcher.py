@@ -28,6 +28,22 @@ class FoodDatabaseError(RuntimeError):
 
 VERIFIED = "verified"
 PROVISIONAL = "provisional"
+NOT_APPLICABLE = "not_applicable"
+
+# How estimated_grams should be read for a food.
+GROSS = "gross"  # whole visible weight; may need an edible-portion correction
+EDIBLE = "edible"  # already the edible mass
+
+
+def valid_factor(value) -> float | None:
+    """An edible portion factor must be a number in (0, 1]."""
+    try:
+        factor = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not 0 < factor <= 1:
+        return None
+    return factor
 
 
 @dataclass(frozen=True)
@@ -45,10 +61,28 @@ class FoodRecord:
     # PROVISIONAL rather than VERIFIED.
     data_status: str = PROVISIONAL
 
+    # Edible portion (BDD - Bagian yang Dapat Dimakan). Tracked separately
+    # from the nutrition values: a record can have verified nutrition and an
+    # unverified BDD factor, or the reverse.
+    edible_portion_factor: float | None = None
+    edible_portion_status: str = NOT_APPLICABLE
+    weight_basis: str = EDIBLE
+    edible_portion_source: str = ""
+    edible_portion_source_reference: str = ""
+
     @property
     def is_verified(self) -> bool:
         """Only verified records may be used in user-facing nutrition values."""
         return self.data_status == VERIFIED
+
+    @property
+    def has_verified_edible_portion(self) -> bool:
+        """Only a verified factor on a gross-weight food may adjust grams."""
+        return (
+            self.weight_basis == GROSS
+            and self.edible_portion_status == VERIFIED
+            and valid_factor(self.edible_portion_factor) is not None
+        )
 
 
 def normalize(name: str) -> str:
@@ -56,6 +90,49 @@ def normalize(name: str) -> str:
     text = name.strip().lower()
     text = re.sub(r"[^\w\s]", " ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _edible_portion_fields(raw: dict) -> dict:
+    """Read the BDD fields, discarding anything that fails validation.
+
+    An out-of-range factor is dropped rather than clamped - a bad factor is a
+    data error, and silently "fixing" it would fabricate a correction.
+    """
+    factor = valid_factor(raw.get("edible_portion_factor"))
+    status = str(raw.get("edible_portion_status", NOT_APPLICABLE)).strip().lower()
+    basis = str(raw.get("weight_basis", EDIBLE)).strip().lower()
+
+    if raw.get("edible_portion_factor") is not None and factor is None:
+        logger.warning(
+            "Ignoring invalid edible_portion_factor %r for %r",
+            raw.get("edible_portion_factor"),
+            raw.get("id"),
+        )
+        status = NOT_APPLICABLE
+
+    if status not in (VERIFIED, PROVISIONAL, NOT_APPLICABLE):
+        logger.warning(
+            "Unknown edible_portion_status %r for %r; treating as provisional",
+            status,
+            raw.get("id"),
+        )
+        status = PROVISIONAL
+
+    if basis not in (GROSS, EDIBLE):
+        logger.warning(
+            "Unknown weight_basis %r for %r; treating as edible", basis, raw.get("id")
+        )
+        basis = EDIBLE
+
+    return {
+        "edible_portion_factor": factor,
+        "edible_portion_status": status,
+        "weight_basis": basis,
+        "edible_portion_source": str(raw.get("edible_portion_source", "")),
+        "edible_portion_source_reference": str(
+            raw.get("edible_portion_source_reference", "")
+        ),
+    }
 
 
 def _load_records(path: Path) -> list[FoodRecord]:
@@ -81,6 +158,7 @@ def _load_records(path: Path) -> list[FoodRecord]:
                     source=raw.get("source", ""),
                     source_reference=raw.get("source_reference", ""),
                     data_status=str(raw.get("data_status", PROVISIONAL)).strip().lower(),
+                    **_edible_portion_fields(raw),
                 )
             )
         except (KeyError, TypeError, ValueError):

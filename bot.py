@@ -213,7 +213,15 @@ def format_nutrition(meal: MealNutrition) -> str:
             continue
 
         value = item.nutrition.rounded()
-        lines.append(f"{label} — ±{item.grams} g")
+        if item.edible_portion_applied:
+            # Show both weights so the correction is visible but not technical.
+            lines.append(label)
+            lines.append(f"Perkiraan porsi terlihat: ±{item.estimated_gross_grams} g")
+            lines.append(
+                f"Perkiraan bagian dapat dimakan: ±{item.calculated_edible_grams} g"
+            )
+        else:
+            lines.append(f"{label} — ±{item.estimated_gross_grams} g")
         lines.append(f"🔥 {value.calories:.0f} kcal")
         lines.append(f"🥩 Protein: {value.protein:.1f} g")
         lines.append(f"🍚 Karbo: {value.carbs:.1f} g")

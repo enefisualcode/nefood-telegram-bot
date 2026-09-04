@@ -1,5 +1,5 @@
 {
-  "_comment": "Nutrition values per 100 g of edible portion. Every record must cite a real source in 'source'/'source_reference' and declare 'data_status'. Only records with data_status='verified' - values checked against the cited source - are used in user-facing nutrition totals. 'provisional' records are kept for reference but are never counted. Never add a record with guessed values.",
+  "_comment": "Nutrition values per 100 g of EDIBLE portion. Every record must cite a real source in 'source'/'source_reference' and declare 'data_status'. Only records with data_status='verified' are used in user-facing nutrition totals. Edible portion (BDD) is tracked separately: a factor is applied only when weight_basis='gross' AND edible_portion_status='verified'. Never add a guessed nutrition value or BDD factor.",
   "foods": [
     {
       "id": "nasi_putih",
@@ -16,7 +16,12 @@
       "fat_per_100g": 0.3,
       "source": "USDA FoodData Central, SR Legacy",
       "source_reference": "Rice, white, long-grain, regular, enriched, cooked (values not yet checked against the cited source)",
-      "data_status": "provisional"
+      "data_status": "provisional",
+      "edible_portion_factor": null,
+      "edible_portion_status": "not_applicable",
+      "weight_basis": "edible",
+      "edible_portion_source": "",
+      "edible_portion_source_reference": ""
     },
     {
       "id": "ayam_goreng",
@@ -32,7 +37,12 @@
       "fat_per_100g": 15.2,
       "source": "USDA FoodData Central, SR Legacy",
       "source_reference": "Chicken, broilers or fryers, meat and skin, batter-fried (values not yet checked against the cited source)",
-      "data_status": "provisional"
+      "data_status": "provisional",
+      "edible_portion_factor": null,
+      "edible_portion_status": "not_applicable",
+      "weight_basis": "gross",
+      "edible_portion_source": "",
+      "edible_portion_source_reference": "BDD factor not yet verified from an official source; no correction is applied"
     },
     {
       "id": "telur_rebus",
@@ -48,7 +58,12 @@
       "fat_per_100g": 10.6,
       "source": "USDA FoodData Central, SR Legacy",
       "source_reference": "Egg, whole, cooked, hard-boiled (values not yet checked against the cited source)",
-      "data_status": "provisional"
+      "data_status": "provisional",
+      "edible_portion_factor": null,
+      "edible_portion_status": "not_applicable",
+      "weight_basis": "edible",
+      "edible_portion_source": "",
+      "edible_portion_source_reference": ""
     },
     {
       "id": "telur_goreng",
@@ -65,7 +80,12 @@
       "fat_per_100g": 15.3,
       "source": "USDA FoodData Central, SR Legacy",
       "source_reference": "Egg, whole, cooked, fried (values not yet checked against the cited source)",
-      "data_status": "provisional"
+      "data_status": "provisional",
+      "edible_portion_factor": null,
+      "edible_portion_status": "not_applicable",
+      "weight_basis": "edible",
+      "edible_portion_source": "",
+      "edible_portion_source_reference": ""
     },
     {
       "id": "tempe",
@@ -81,7 +101,12 @@
       "fat_per_100g": 10.8,
       "source": "USDA FoodData Central, SR Legacy",
       "source_reference": "Tempeh (values not yet checked against the cited source)",
-      "data_status": "provisional"
+      "data_status": "provisional",
+      "edible_portion_factor": null,
+      "edible_portion_status": "not_applicable",
+      "weight_basis": "edible",
+      "edible_portion_source": "",
+      "edible_portion_source_reference": ""
     },
     {
       "id": "tahu",
@@ -97,7 +122,12 @@
       "fat_per_100g": 8.7,
       "source": "USDA FoodData Central, SR Legacy",
       "source_reference": "Tofu, raw, firm, prepared with calcium sulfate (values not yet checked against the cited source)",
-      "data_status": "provisional"
+      "data_status": "provisional",
+      "edible_portion_factor": null,
+      "edible_portion_status": "not_applicable",
+      "weight_basis": "edible",
+      "edible_portion_source": "",
+      "edible_portion_source_reference": ""
     },
     {
       "id": "pisang",
@@ -113,7 +143,12 @@
       "fat_per_100g": 0.3,
       "source": "USDA FoodData Central, SR Legacy",
       "source_reference": "Bananas, raw (values not yet checked against the cited source)",
-      "data_status": "provisional"
+      "data_status": "provisional",
+      "edible_portion_factor": null,
+      "edible_portion_status": "not_applicable",
+      "weight_basis": "edible",
+      "edible_portion_source": "",
+      "edible_portion_source_reference": ""
     }
   ]
 }

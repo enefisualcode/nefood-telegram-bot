@@ -65,12 +65,23 @@ class FoodNutrition:
     """One detected food and how it was resolved against the database."""
 
     name: str
-    grams: int
+    # The vision model's original estimate. Never overwritten.
+    estimated_gross_grams: int = 0
+    # What nutrition was actually calculated from. Equal to the gross estimate
+    # unless a verified edible-portion factor was applied.
+    calculated_edible_grams: int = 0
+    edible_portion_factor: float | None = None
+    edible_portion_applied: bool = False
     status: str = UNMATCHED
     nutrition: Nutrition | None = None
     record: FoodRecord | None = None
     source: str = ""
     usda: UsdaFood | None = None
+
+    @property
+    def grams(self) -> int:
+        """The portion to show alongside nutrition values."""
+        return self.calculated_edible_grams
 
     @property
     def counted(self) -> bool:
@@ -111,6 +122,21 @@ def scale(source, grams: float) -> Nutrition:
     )
 
 
+def resolve_edible_grams(record: FoodRecord | None, gross_grams: int) -> tuple[int, float | None, bool]:
+    """Apply a verified edible-portion factor, if there is one.
+
+    Returns (edible_grams, factor, applied). When no verified factor exists the
+    grams pass through untouched and `applied` is False - we never assume a BDD
+    correction, and a provisional factor is ignored entirely.
+    """
+    if record is None or not record.has_verified_edible_portion:
+        return gross_grams, None, False
+
+    factor = record.edible_portion_factor
+    edible = _round_half_up(gross_grams * factor)
+    return edible, factor, True
+
+
 async def resolve_food(
     food: DetectedFood,
     matcher: FoodMatcher,
@@ -124,14 +150,26 @@ async def resolve_food(
     """
     record = matcher.match(food.name)
 
+    # The BDD factor describes the food, not the nutrition source, so it is
+    # resolved from the local record even when USDA supplies the nutrients.
+    gross = food.estimated_grams
+    edible, factor, applied = resolve_edible_grams(record, gross)
+
+    portion = {
+        "estimated_gross_grams": gross,
+        "calculated_edible_grams": edible,
+        "edible_portion_factor": factor,
+        "edible_portion_applied": applied,
+    }
+
     if record is not None and record.is_verified:
         return FoodNutrition(
             name=food.name,
-            grams=food.estimated_grams,
             status=COUNTED,
-            nutrition=scale(record, food.estimated_grams),
+            nutrition=scale(record, edible),
             record=record,
             source=SOURCE_LOCAL,
+            **portion,
         )
 
     # A provisional local record must not block the USDA fallback.
@@ -140,20 +178,18 @@ async def resolve_food(
     if usda_food is not None:
         return FoodNutrition(
             name=food.name,
-            grams=food.estimated_grams,
             status=COUNTED,
-            nutrition=scale(usda_food, food.estimated_grams),
+            nutrition=scale(usda_food, edible),
             record=record,
             source=SOURCE_USDA,
             usda=usda_food,
+            **portion,
         )
 
     # Nothing trustworthy. Distinguish "we have an untrusted record" from
     # "we have nothing at all" so the user gets an accurate explanation.
     status = UNVERIFIED if record is not None else UNMATCHED
-    return FoodNutrition(
-        name=food.name, grams=food.estimated_grams, status=status, record=record
-    )
+    return FoodNutrition(name=food.name, status=status, record=record, **portion)
 
 
 async def calculate_meal(
