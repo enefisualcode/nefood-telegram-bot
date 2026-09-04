@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 
 from services.food_matcher import FoodMatcher, FoodRecord, get_matcher
+from services.usda_food_data import UsdaClient, UsdaFood, get_client
 from services.food_vision import DetectedFood
 
 
@@ -50,9 +51,13 @@ class Nutrition:
 
 
 # How a detected food ended up being treated.
-COUNTED = "counted"  # matched a verified record and contributes to the total
-UNVERIFIED = "unverified"  # matched, but the record is provisional
-UNMATCHED = "unmatched"  # no record at all
+COUNTED = "counted"  # resolved to trusted data and contributes to the total
+UNVERIFIED = "unverified"  # only a provisional local record, and no USDA data
+UNMATCHED = "unmatched"  # no usable data anywhere
+
+# Where a counted food's numbers came from.
+SOURCE_LOCAL = "local"
+SOURCE_USDA = "usda"
 
 
 @dataclass(frozen=True)
@@ -64,6 +69,8 @@ class FoodNutrition:
     status: str = UNMATCHED
     nutrition: Nutrition | None = None
     record: FoodRecord | None = None
+    source: str = ""
+    usda: UsdaFood | None = None
 
     @property
     def counted(self) -> bool:
@@ -89,60 +96,83 @@ class MealNutrition:
         return [item for item in self.items if item.status == UNMATCHED]
 
 
-def scale(record: FoodRecord, grams: float) -> Nutrition:
-    """Scale per-100 g values to the estimated portion."""
+def scale(source, grams: float) -> Nutrition:
+    """Scale per-100 g values to the estimated portion.
+
+    Accepts anything exposing the per-100 g fields - a local FoodRecord or a
+    USDA record - since the arithmetic is identical.
+    """
     factor = grams / 100.0
     return Nutrition(
-        calories=record.calories_per_100g * factor,
-        protein=record.protein_per_100g * factor,
-        carbs=record.carbs_per_100g * factor,
-        fat=record.fat_per_100g * factor,
+        calories=source.calories_per_100g * factor,
+        protein=source.protein_per_100g * factor,
+        carbs=source.carbs_per_100g * factor,
+        fat=source.fat_per_100g * factor,
     )
 
 
-def calculate_meal(
-    foods: list[DetectedFood], matcher: FoodMatcher | None = None
+async def resolve_food(
+    food: DetectedFood,
+    matcher: FoodMatcher,
+    usda: UsdaClient | None,
+) -> FoodNutrition:
+    """Resolve one detected food against the source priority.
+
+    1. verified local record
+    2. USDA FoodData Central
+    3. unavailable
+    """
+    record = matcher.match(food.name)
+
+    if record is not None and record.is_verified:
+        return FoodNutrition(
+            name=food.name,
+            grams=food.estimated_grams,
+            status=COUNTED,
+            nutrition=scale(record, food.estimated_grams),
+            record=record,
+            source=SOURCE_LOCAL,
+        )
+
+    # A provisional local record must not block the USDA fallback.
+    usda_food = await usda.lookup(food.name) if usda is not None else None
+
+    if usda_food is not None:
+        return FoodNutrition(
+            name=food.name,
+            grams=food.estimated_grams,
+            status=COUNTED,
+            nutrition=scale(usda_food, food.estimated_grams),
+            record=record,
+            source=SOURCE_USDA,
+            usda=usda_food,
+        )
+
+    # Nothing trustworthy. Distinguish "we have an untrusted record" from
+    # "we have nothing at all" so the user gets an accurate explanation.
+    status = UNVERIFIED if record is not None else UNMATCHED
+    return FoodNutrition(
+        name=food.name, grams=food.estimated_grams, status=status, record=record
+    )
+
+
+async def calculate_meal(
+    foods: list[DetectedFood],
+    matcher: FoodMatcher | None = None,
+    usda: UsdaClient | None = None,
 ) -> MealNutrition:
-    """Match every detected food and total up the ones we have data for."""
+    """Resolve every detected food and total up the trusted ones."""
     matcher = matcher or get_matcher()
+    if usda is None:
+        usda = get_client()
 
     items: list[FoodNutrition] = []
     total = Nutrition()
 
     for food in foods:
-        record = matcher.match(food.name)
-
-        if record is None:
-            items.append(
-                FoodNutrition(
-                    name=food.name, grams=food.estimated_grams, status=UNMATCHED
-                )
-            )
-            continue
-
-        if not record.is_verified:
-            # The record exists but its values were never checked against the
-            # cited source, so it must not reach the user as nutrition data.
-            items.append(
-                FoodNutrition(
-                    name=food.name,
-                    grams=food.estimated_grams,
-                    status=UNVERIFIED,
-                    record=record,
-                )
-            )
-            continue
-
-        nutrition = scale(record, food.estimated_grams)
-        total = total + nutrition
-        items.append(
-            FoodNutrition(
-                name=food.name,
-                grams=food.estimated_grams,
-                status=COUNTED,
-                nutrition=nutrition,
-                record=record,
-            )
-        )
+        item = await resolve_food(food, matcher, usda)
+        items.append(item)
+        if item.status == COUNTED:
+            total = total + item.nutrition
 
     return MealNutrition(items=items, total=total)

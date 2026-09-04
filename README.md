@@ -2,7 +2,7 @@
 
 A Telegram bot that recognises the foods in a photo using the Google Gemini API.
 
-**Current phase: 3A — deterministic nutrition calculation.** The bot detects visible
+**Current phase: 3B — deterministic nutrition with USDA fallback.** The bot detects visible
 foods, estimates portions, and — after the user confirms — calculates nutrition from a
 local curated database.
 
@@ -10,6 +10,20 @@ Nutrition values never come from the vision model. Gemini only identifies foods 
 estimates grams; all calorie and macro values come from `data/foods.json`, where every
 record cites its source. A food with no record is reported as unavailable rather than
 guessed.
+
+### Nutrition source priority
+
+1. **Verified local record** in `data/foods.json`
+2. **USDA FoodData Central** — live API lookup, for foods with no verified local
+   record (a *provisional* local record does not block this fallback)
+3. **Unavailable** — reported to the user, excluded from the total
+
+USDA lookups use a small curated Indonesian-to-USDA query map in
+`services/usda_food_data.py`; only generic `Foundation`/`SR Legacy` records are
+accepted, and each candidate must pass explicit include/exclude token rules. A USDA
+failure (timeout, 429, bad JSON, missing nutrient, no safe match) affects only that
+one food — the rest of the meal still totals. Results are cached in memory for the
+process lifetime. Without `USDA_API_KEY` the fallback is simply skipped.
 
 ### Data status — read before trusting any number
 
@@ -92,6 +106,7 @@ config.py                 Environment configuration
 services/food_vision.py          Gemini image analysis (no Telegram code)
 services/food_matcher.py         Name -> food record lookup
 services/nutrition_calculator.py Deterministic per-100 g scaling
+services/usda_food_data.py       USDA FoodData Central fallback
 data/foods.json                  Curated nutrition database (sourced values only)
 tests/                           Unit tests
 requirements.txt          Dependencies
@@ -112,6 +127,8 @@ requirements.txt          Dependencies
 | `TELEGRAM_BOT_TOKEN` | yes      | —                   |
 | `GEMINI_API_KEY`     | yes      | —                   |
 | `GEMINI_MODEL`       | no       | `gemini-3.6-flash`  |
+| `USDA_API_KEY`       | no       | — (fallback off)    |
+| `USDA_TIMEOUT_SECONDS` | no     | `10`                |
 | `LOG_LEVEL`          | no       | `INFO`              |
 
 ## Troubleshooting

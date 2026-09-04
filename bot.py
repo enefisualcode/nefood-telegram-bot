@@ -21,6 +21,7 @@ from telegram.ext import (
 import config
 from services.food_vision import FoodAnalysis, FoodVisionError, analyze_food_image
 from services.nutrition_calculator import (
+    SOURCE_USDA,
     UNMATCHED,
     UNVERIFIED,
     MealNutrition,
@@ -217,6 +218,8 @@ def format_nutrition(meal: MealNutrition) -> str:
         lines.append(f"🥩 Protein: {value.protein:.1f} g")
         lines.append(f"🍚 Karbo: {value.carbs:.1f} g")
         lines.append(f"🥑 Lemak: {value.fat:.1f} g")
+        if item.source == SOURCE_USDA:
+            lines.append("Sumber: USDA FoodData Central")
         lines.append("")
 
     if not meal.counted_items:
@@ -262,7 +265,7 @@ async def handle_portion_callback(
     await query.message.reply_text(CONFIRMED_MESSAGE)
 
     try:
-        meal = calculate_meal(analysis.foods)
+        meal = await calculate_meal(analysis.foods)
     except Exception:
         logger.exception("Nutrition calculation failed for user_id=%s", user.id if user else "unknown")
         await query.message.reply_text(NUTRITION_FAILED_MESSAGE)
