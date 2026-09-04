@@ -367,6 +367,41 @@ class UsdaNutrientParsingTest(unittest.TestCase):
         }
         self.assertEqual(to_usda_food(payload).calories_per_100g, 289)
 
+    def test_foundation_atwater_energy_is_used_when_208_is_absent(self):
+        """Foundation records carry no 208; energy is 957/958 instead."""
+        payload = {
+            "fdcId": 2346406,
+            "description": "Cucumber, with peel, raw",
+            "dataType": "Foundation",
+            "foodNutrients": [
+                {"nutrient": {"number": "957", "unitName": "kcal"}, "amount": 15.9075},
+                {"nutrient": {"number": "958", "unitName": "kcal"}, "amount": 13.934925},
+                {"nutrient": {"number": "203", "unitName": "g"}, "amount": 0.625},
+                {"nutrient": {"number": "205", "unitName": "g"}, "amount": 2.9525},
+                {"nutrient": {"number": "204", "unitName": "g"}, "amount": 0.1775},
+            ],
+        }
+        food = to_usda_food(payload)
+        self.assertEqual(food.calories_per_100g, 15.9075)
+        self.assertEqual(food.energy_nutrient_number, "957")
+
+    def test_208_wins_over_atwater_when_both_present(self):
+        payload = {
+            "fdcId": 1,
+            "description": "X",
+            "dataType": "SR Legacy",
+            "foodNutrients": [
+                {"nutrient": {"number": "957", "unitName": "kcal"}, "amount": 11},
+                {"nutrient": {"number": "208", "unitName": "kcal"}, "amount": 25},
+                {"nutrient": {"number": "203", "unitName": "g"}, "amount": 1},
+                {"nutrient": {"number": "205", "unitName": "g"}, "amount": 2},
+                {"nutrient": {"number": "204", "unitName": "g"}, "amount": 3},
+            ],
+        }
+        food = to_usda_food(payload)
+        self.assertEqual(food.calories_per_100g, 25)
+        self.assertEqual(food.energy_nutrient_number, "208")
+
     def test_missing_nutrient_raises_rather_than_guessing(self):
         payload = {
             "fdcId": 99,
@@ -375,7 +410,7 @@ class UsdaNutrientParsingTest(unittest.TestCase):
             "foodNutrients": [
                 {"nutrient": {"number": "208", "unitName": "kcal"}, "amount": 100}
             ],
-        }
+        }  # protein/carbs/fat absent
         with self.assertRaises(UsdaError):
             to_usda_food(payload)
 

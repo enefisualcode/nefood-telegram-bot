@@ -25,7 +25,14 @@ logger = logging.getLogger(__name__)
 ALLOWED_DATA_TYPES = ("Foundation", "SR Legacy")
 
 # FDC nutrient numbers are stable identifiers; names vary between datasets.
-ENERGY_KCAL_NUMBER = "208"
+#
+# Energy is dataset-dependent: SR Legacy reports 208, while Foundation records
+# carry no 208 at all and instead report Atwater energy as 957 (general
+# factors) and 958 (specific factors). We prefer 208, then 957, because the
+# general 4-9-4 factors match the methodology behind the SR Legacy values used
+# elsewhere; 958 is the last resort.
+ENERGY_KCAL_NUMBERS = ("208", "957", "958")
+ENERGY_KCAL_NUMBER = ENERGY_KCAL_NUMBERS[0]
 PROTEIN_NUMBER = "203"
 CARB_NUMBER = "205"
 FAT_NUMBER = "204"
@@ -107,6 +114,8 @@ class UsdaFood:
     carbs_per_100g: float
     fat_per_100g: float
     query: str = ""
+    # Which FDC nutrient number the kcal figure came from (208 / 957 / 958).
+    energy_nutrient_number: str = ""
     retrieved_at: str = ""
     source: str = "USDA FoodData Central"
 
@@ -151,7 +160,7 @@ def _nutrient_amounts(payload: dict) -> dict[str, float]:
         key = str(number).lstrip("0") or "0"
 
         # Energy is reported in both kcal and kJ; keep only kcal.
-        if key == ENERGY_KCAL_NUMBER.lstrip("0"):
+        if key in ENERGY_KCAL_NUMBERS:
             if str(unit or "").strip().lower() not in ("kcal", ""):
                 continue
 
@@ -167,6 +176,15 @@ def _pick(amounts: dict[str, float], number: str) -> float | None:
     return amounts.get(number.lstrip("0") or "0")
 
 
+def _pick_energy(amounts: dict[str, float]) -> tuple[float | None, str]:
+    """Return the kcal value and which nutrient number it came from."""
+    for number in ENERGY_KCAL_NUMBERS:
+        value = _pick(amounts, number)
+        if value is not None:
+            return value, number
+    return None, ""
+
+
 def to_usda_food(payload: dict, query: str = "") -> UsdaFood:
     """Convert an API payload into our internal structure.
 
@@ -174,9 +192,10 @@ def to_usda_food(payload: dict, query: str = "") -> UsdaFood:
     is never filled in with a guess.
     """
     amounts = _nutrient_amounts(payload)
+    energy, energy_number = _pick_energy(amounts)
 
     values = {
-        "calories_per_100g": _pick(amounts, ENERGY_KCAL_NUMBER),
+        "calories_per_100g": energy,
         "protein_per_100g": _pick(amounts, PROTEIN_NUMBER),
         "carbs_per_100g": _pick(amounts, CARB_NUMBER),
         "fat_per_100g": _pick(amounts, FAT_NUMBER),
@@ -193,6 +212,7 @@ def to_usda_food(payload: dict, query: str = "") -> UsdaFood:
         description=str(payload.get("description", "")),
         data_type=str(payload.get("dataType", "")),
         query=query,
+        energy_nutrient_number=energy_number,
         retrieved_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         **values,
     )
