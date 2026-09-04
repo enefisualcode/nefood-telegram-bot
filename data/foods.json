@@ -1,0 +1,119 @@
+{
+  "_comment": "Nutrition values per 100 g of edible portion. Every record must cite a real source in 'source'/'source_reference' and declare 'data_status'. Only records with data_status='verified' - values checked against the cited source - are used in user-facing nutrition totals. 'provisional' records are kept for reference but are never counted. Never add a record with guessed values.",
+  "foods": [
+    {
+      "id": "nasi_putih",
+      "name": "Nasi putih",
+      "aliases": [
+        "nasi putih",
+        "nasi",
+        "white rice",
+        "nasi pulen"
+      ],
+      "calories_per_100g": 130,
+      "protein_per_100g": 2.7,
+      "carbs_per_100g": 28.2,
+      "fat_per_100g": 0.3,
+      "source": "USDA FoodData Central, SR Legacy",
+      "source_reference": "Rice, white, long-grain, regular, enriched, cooked (values not yet checked against the cited source)",
+      "data_status": "provisional"
+    },
+    {
+      "id": "ayam_goreng",
+      "name": "Ayam goreng",
+      "aliases": [
+        "ayam goreng",
+        "fried chicken",
+        "ayam goreng tepung"
+      ],
+      "calories_per_100g": 279,
+      "protein_per_100g": 27.1,
+      "carbs_per_100g": 8.4,
+      "fat_per_100g": 15.2,
+      "source": "USDA FoodData Central, SR Legacy",
+      "source_reference": "Chicken, broilers or fryers, meat and skin, batter-fried (values not yet checked against the cited source)",
+      "data_status": "provisional"
+    },
+    {
+      "id": "telur_rebus",
+      "name": "Telur rebus",
+      "aliases": [
+        "telur rebus",
+        "telur ayam rebus",
+        "boiled egg"
+      ],
+      "calories_per_100g": 155,
+      "protein_per_100g": 12.6,
+      "carbs_per_100g": 1.1,
+      "fat_per_100g": 10.6,
+      "source": "USDA FoodData Central, SR Legacy",
+      "source_reference": "Egg, whole, cooked, hard-boiled (values not yet checked against the cited source)",
+      "data_status": "provisional"
+    },
+    {
+      "id": "telur_goreng",
+      "name": "Telur goreng",
+      "aliases": [
+        "telur goreng",
+        "telur dadar",
+        "telur ceplok",
+        "fried egg"
+      ],
+      "calories_per_100g": 196,
+      "protein_per_100g": 13.6,
+      "carbs_per_100g": 0.8,
+      "fat_per_100g": 15.3,
+      "source": "USDA FoodData Central, SR Legacy",
+      "source_reference": "Egg, whole, cooked, fried (values not yet checked against the cited source)",
+      "data_status": "provisional"
+    },
+    {
+      "id": "tempe",
+      "name": "Tempe",
+      "aliases": [
+        "tempe",
+        "tempeh",
+        "tempe kedelai"
+      ],
+      "calories_per_100g": 192,
+      "protein_per_100g": 20.3,
+      "carbs_per_100g": 7.6,
+      "fat_per_100g": 10.8,
+      "source": "USDA FoodData Central, SR Legacy",
+      "source_reference": "Tempeh (values not yet checked against the cited source)",
+      "data_status": "provisional"
+    },
+    {
+      "id": "tahu",
+      "name": "Tahu",
+      "aliases": [
+        "tahu",
+        "tofu",
+        "tahu putih"
+      ],
+      "calories_per_100g": 144,
+      "protein_per_100g": 17.3,
+      "carbs_per_100g": 2.8,
+      "fat_per_100g": 8.7,
+      "source": "USDA FoodData Central, SR Legacy",
+      "source_reference": "Tofu, raw, firm, prepared with calcium sulfate (values not yet checked against the cited source)",
+      "data_status": "provisional"
+    },
+    {
+      "id": "pisang",
+      "name": "Pisang",
+      "aliases": [
+        "pisang",
+        "banana",
+        "pisang ambon"
+      ],
+      "calories_per_100g": 89,
+      "protein_per_100g": 1.1,
+      "carbs_per_100g": 22.8,
+      "fat_per_100g": 0.3,
+      "source": "USDA FoodData Central, SR Legacy",
+      "source_reference": "Bananas, raw (values not yet checked against the cited source)",
+      "data_status": "provisional"
+    }
+  ]
+}
