@@ -2,7 +2,7 @@
 
 A Telegram bot that recognises the foods in a photo using the Google Gemini API.
 
-**Current phase: 3C — edible portion (BDD) infrastructure.** The bot detects visible
+**Current phase: 3D — verified Indonesian (TKPI) food dataset foundation.** The bot detects visible
 foods, estimates portions, and — after the user confirms — calculates nutrition from a
 local curated database.
 
@@ -44,6 +44,43 @@ adjusted one, as `estimated_gross_grams` and `calculated_edible_grams`.
 **No verified BDD factor is currently shipped**, so no correction is applied to any
 food today. `ayam_goreng` is marked `weight_basis: gross` to record that it will
 need one once an official figure (TKPI / Kemenkes) can be verified.
+
+### Verified Indonesian (TKPI) data
+
+Local records can now cite fine-grained nutrition provenance: `source_food_code`,
+`source_food_name`, `source_version`, alongside the existing `source` /
+`source_reference`. Nothing here changes the source priority - it is still
+**verified local record -> USDA FoodData Central -> unavailable** - it only makes
+"verified local" achievable with a real Indonesian source (TKPI) instead of only USDA.
+
+A food is promoted to `data_status: verified` only when an official source (TKPI /
+Kemenkes) has an exact or clearly defensible match - not merely a similarly-named
+one, and only after the exact code and values have been read directly from the
+official document itself (a third-party mirror may be used to *discover* a
+candidate, but never as the sole basis for `verified`). Two foods are currently
+verified this way: `nasi_putih` (TKPI 2020, code AP001) and `kol` (TKPI 2020, code
+DR114) - both confirmed directly against the official PDF at
+repository.kemkes.go.id/book/668 (ISBN 9786233010368).
+
+**`kemangi` was investigated, promoted, then reverted.** A third-party mirror
+reported TKPI code DR039 as "Daun kemangi, segar" (basil), and that name/value pair
+was initially trusted and promoted to verified. A follow-up audit read the official
+PDF directly and found DR039 is actually **"Daun kemang, segar"** - the leaf of
+*kemang* (a mango relative, Mangifera kemanga), a different plant from kemangi
+(basil, Ocimum basilicum) - with no separate kemangi entry anywhere in TKPI's
+Sayuran section (DR001-DR166). The record was removed rather than left as a
+mislabeled "provisional" entry; `kemangi` now relies solely on its existing USDA
+FoodData Central mapping (verified live in Phase 3B, FDC 172232 "Basil, fresh").
+This is why every mirror-sourced value now gets a second, independent check against
+the primary document before promotion.
+
+Several other foods were investigated and deliberately **not** promoted because TKPI
+only offers ambiguous candidates for them (see `data/foods.json` for the reasoning
+recorded on each record) - e.g. TKPI's only `ayam goreng` entries are
+branded/regional (Kentucky, Pasundan, ...), and `tempe`/`tahu` split into
+raw/fried entries with very different values while Gemini's detection does not say
+which one was seen. Silently picking one would misrepresent the food, so those stay
+`provisional` and continue to rely on the USDA fallback.
 
 ### Data status — read before trusting any number
 

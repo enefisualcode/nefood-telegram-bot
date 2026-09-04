@@ -855,6 +855,157 @@ class EdiblePortionCalculationTest(unittest.TestCase):
         self.assertEqual(meal.total.rounded().calories, 326)
 
 
+class TkpiProvenanceTest(unittest.TestCase):
+    """Phase 3D: verified local (TKPI-style) records vs USDA fallback."""
+
+    VERIFIED_TKPI = FoodRecord(
+        id="kol",
+        name="Kol",
+        aliases=["kol", "kubis"],
+        calories_per_100g=29.0,
+        protein_per_100g=1.4,
+        carbs_per_100g=5.3,
+        fat_per_100g=0.2,
+        source="Tabel Komposisi Pangan Indonesia (TKPI) 2019, Kementerian Kesehatan RI",
+        source_reference="Kol merah, kol putih (kode DR114)",
+        source_food_code="DR114",
+        source_food_name="Kol merah, kol putih",
+        source_version="TKPI 2019",
+        data_status=VERIFIED,
+    )
+
+    def test_verified_local_record_takes_priority_over_usda(self):
+        def explode(request):
+            raise AssertionError("USDA must not be called when a verified local record exists")
+
+        client = fake_usda(explode)
+        matcher = FoodMatcher([self.VERIFIED_TKPI])
+        meal = run(calculate_meal([detected("kol", 100)], matcher, client))
+        item = meal.items[0]
+        self.assertEqual(item.status, COUNTED)
+        self.assertEqual(item.source, SOURCE_LOCAL)
+        self.assertEqual(client.request_count, 0)
+
+    def test_provisional_local_record_still_falls_through_to_usda(self):
+        def cabbage_handler(request):
+            if "/foods/search" in request.url.path:
+                return httpx.Response(
+                    200,
+                    json={"foods": [{"fdcId": 169975, "dataType": "SR Legacy",
+                                      "description": "Cabbage, raw"}]},
+                )
+            return httpx.Response(200, json={
+                "fdcId": 169975, "dataType": "SR Legacy", "description": "Cabbage, raw",
+                "foodNutrients": [
+                    {"nutrient": {"number": "208", "unitName": "kcal"}, "amount": 25.0},
+                    {"nutrient": {"number": "203", "unitName": "g"}, "amount": 1.28},
+                    {"nutrient": {"number": "205", "unitName": "g"}, "amount": 5.8},
+                    {"nutrient": {"number": "204", "unitName": "g"}, "amount": 0.1},
+                ],
+            })
+
+        provisional = FoodRecord(
+            id="kol", name="Kol", aliases=["kol"],
+            calories_per_100g=29.0, protein_per_100g=1.4,
+            carbs_per_100g=5.3, fat_per_100g=0.2,
+            source_food_code="DR114", data_status=PROVISIONAL,
+        )
+        client = fake_usda(cabbage_handler)
+        meal = run(calculate_meal([detected("kol", 100)], FoodMatcher([provisional]), client))
+        self.assertEqual(meal.items[0].source, SOURCE_USDA)
+        self.assertGreater(client.request_count, 0)
+
+    def test_source_food_code_is_preserved(self):
+        meal = run(
+            calculate_meal([detected("kol", 100)], FoodMatcher([self.VERIFIED_TKPI]), NO_USDA)
+        )
+        self.assertEqual(meal.items[0].record.source_food_code, "DR114")
+
+    def test_source_food_name_is_preserved(self):
+        meal = run(
+            calculate_meal([detected("kol", 100)], FoodMatcher([self.VERIFIED_TKPI]), NO_USDA)
+        )
+        self.assertEqual(meal.items[0].record.source_food_name, "Kol merah, kol putih")
+
+    def test_source_version_is_preserved(self):
+        meal = run(
+            calculate_meal([detected("kol", 100)], FoodMatcher([self.VERIFIED_TKPI]), NO_USDA)
+        )
+        self.assertEqual(meal.items[0].record.source_version, "TKPI 2019")
+
+    def test_provenance_fields_default_to_empty_for_backward_compatibility(self):
+        """Existing records with no Phase 3D fields must keep working unchanged."""
+        record = FoodRecord(
+            id="x", name="X", aliases=[], calories_per_100g=1.0,
+            protein_per_100g=1.0, carbs_per_100g=1.0, fat_per_100g=1.0,
+            data_status=VERIFIED,
+        )
+        self.assertEqual(record.source_food_code, "")
+        self.assertEqual(record.source_food_name, "")
+        self.assertEqual(record.source_version, "")
+        meal = run(calculate_meal([detected("X", 100)], FoodMatcher([record]), NO_USDA))
+        self.assertEqual(meal.items[0].status, COUNTED)
+
+    def test_verified_local_nutrition_calculation_is_deterministic(self):
+        matcher = FoodMatcher([self.VERIFIED_TKPI])
+        results = [
+            run(calculate_meal([detected("kol", 140)], matcher, NO_USDA)).total.rounded().calories
+            for _ in range(5)
+        ]
+        self.assertEqual(len(set(results)), 1)
+        self.assertEqual(results[0], 41)  # 29 * 1.4 = 40.6 -> 41
+
+    def test_ambiguous_indonesian_food_remains_provisional(self):
+        """A food with multiple non-equivalent source candidates must not be verified."""
+        # Simulates e.g. tempe (mentah vs goreng) or ayam goreng (branded/regional
+        # variants only): the record exists, but investigation could not defensibly
+        # pick one candidate, so it must stay provisional.
+        ambiguous = FoodRecord(
+            id="tempe", name="Tempe", aliases=["tempe"],
+            calories_per_100g=192.0, protein_per_100g=20.3,
+            carbs_per_100g=7.6, fat_per_100g=10.8,
+            data_status=PROVISIONAL,  # NOT promoted despite candidate data existing
+        )
+        meal = run(calculate_meal([detected("tempe", 100)], FoodMatcher([ambiguous]), NO_USDA))
+        item = meal.items[0]
+        self.assertEqual(item.status, UNVERIFIED)
+        self.assertFalse(item.counted)
+        self.assertEqual(meal.total.rounded().calories, 0)
+
+    def test_verified_bdd_provenance_is_preserved_even_when_not_applied(self):
+        """A verified BDD factor can be recorded for provenance without being
+        activated, when weight_basis keeps it inert (gross/edible uncertainty)."""
+        record = FoodRecord(
+            id="kol", name="Kol", aliases=["kol"],
+            calories_per_100g=29.0, protein_per_100g=1.4,
+            carbs_per_100g=5.3, fat_per_100g=0.2,
+            data_status=VERIFIED,
+            edible_portion_factor=0.75,
+            edible_portion_status=VERIFIED,
+            weight_basis=EDIBLE,  # deliberately not GROSS
+            edible_portion_source="TKPI 2019",
+            edible_portion_source_reference="DR114, BDD 75%",
+        )
+        self.assertFalse(record.has_verified_edible_portion)  # never auto-applied
+        meal = run(calculate_meal([detected("kol", 100)], FoodMatcher([record]), NO_USDA))
+        item = meal.items[0]
+        self.assertFalse(item.edible_portion_applied)
+        self.assertEqual(item.calculated_edible_grams, 100)
+        # But the provenance itself survives on the resolved record.
+        self.assertEqual(item.record.edible_portion_status, VERIFIED)
+        self.assertEqual(item.record.edible_portion_factor, 0.75)
+        self.assertEqual(item.record.edible_portion_source_reference, "DR114, BDD 75%")
+
+    def test_usda_fallback_behavior_is_unchanged_by_local_priority_foods(self):
+        """Adding verified local records for some foods must not affect USDA
+        fallback for foods that still have no local match at all."""
+        client = fake_usda(ok_handler)
+        matcher = FoodMatcher([self.VERIFIED_TKPI])  # only "kol" has a local record
+        meal = run(calculate_meal([detected("ayam goreng", 100)], matcher, client))
+        self.assertEqual(meal.items[0].source, SOURCE_USDA)
+        self.assertEqual(meal.items[0].usda.fdc_id, 171448)
+
+
 class RealDatabaseTest(unittest.TestCase):
     """The shipped data/foods.json must load and be internally consistent."""
 
@@ -891,6 +1042,37 @@ class RealDatabaseTest(unittest.TestCase):
             with self.subTest(food=record.id):
                 self.assertNotEqual(meal.items[0].source, SOURCE_LOCAL)
                 self.assertEqual(meal.total.rounded().calories, 0)
+
+    def test_shipped_verified_records_cite_full_tkpi_provenance(self):
+        # Phase 3D.1 audit: only nasi_putih and kol were independently confirmed
+        # against the official Kemenkes PDF. "kemangi" was removed after the
+        # audit found its DR039 code actually names a different plant
+        # ("Daun kemang", not "Daun kemangi") - see data/foods.json history.
+        verified_ids = {"nasi_putih", "kol"}
+        for record in self.matcher.records:
+            if record.id in verified_ids:
+                with self.subTest(food=record.id):
+                    self.assertEqual(record.data_status, VERIFIED)
+                    self.assertTrue(record.source_food_code)
+                    self.assertTrue(record.source_food_name)
+                    self.assertTrue(record.source_version)
+
+    def test_shipped_ambiguous_foods_remain_provisional(self):
+        ambiguous_ids = {
+            "ayam_goreng", "telur_rebus", "telur_goreng", "tempe", "tahu", "pisang",
+        }
+        for record in self.matcher.records:
+            if record.id in ambiguous_ids:
+                with self.subTest(food=record.id):
+                    self.assertEqual(record.data_status, PROVISIONAL)
+
+    def test_no_record_is_named_kemangi(self):
+        """Regression guard: DR039 is "Daun kemang", not kemangi - no record
+        should claim a verified kemangi match without an independently
+        located official source."""
+        for record in self.matcher.records:
+            with self.subTest(food=record.id):
+                self.assertNotEqual(normalize(record.name), "kemangi")
 
     def test_verified_bdd_factor_must_cite_a_source(self):
         for record in self.matcher.records:

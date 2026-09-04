@@ -1,5 +1,5 @@
 {
-  "_comment": "Nutrition values per 100 g of EDIBLE portion. Every record must cite a real source in 'source'/'source_reference' and declare 'data_status'. Only records with data_status='verified' are used in user-facing nutrition totals. Edible portion (BDD) is tracked separately: a factor is applied only when weight_basis='gross' AND edible_portion_status='verified'. Never add a guessed nutrition value or BDD factor.",
+  "_comment": "Nutrition values per 100 g of EDIBLE portion. Every record must cite a real source in 'source'/'source_reference' and declare 'data_status'. Only records with data_status='verified' are used in user-facing nutrition totals. source_food_code/source_food_name/source_version give fine-grained provenance for the nutrition source (Phase 3D) and are optional. Edible portion (BDD) is tracked separately: a factor is applied only when weight_basis='gross' AND edible_portion_status='verified' - a verified BDD factor may still be recorded with weight_basis='edible' purely for provenance when it is unclear whether Gemini's gram estimate is gross or already-edible; in that case the factor is never applied. Never add a guessed nutrition value or BDD factor.",
   "foods": [
     {
       "id": "nasi_putih",
@@ -10,18 +10,21 @@
         "white rice",
         "nasi pulen"
       ],
-      "calories_per_100g": 130,
-      "protein_per_100g": 2.7,
-      "carbs_per_100g": 28.2,
+      "calories_per_100g": 180,
+      "protein_per_100g": 3.0,
+      "carbs_per_100g": 39.8,
       "fat_per_100g": 0.3,
-      "source": "USDA FoodData Central, SR Legacy",
-      "source_reference": "Rice, white, long-grain, regular, enriched, cooked (values not yet checked against the cited source)",
-      "data_status": "provisional",
-      "edible_portion_factor": null,
-      "edible_portion_status": "not_applicable",
+      "source": "Tabel Komposisi Pangan Indonesia (TKPI) 2020, Kementerian Kesehatan RI (ISBN 9786233010368)",
+      "source_reference": "Nasi (kode AP001), tabel 4.1 Serealia dan Hasil Olahannya, halaman 10 - dikonfirmasi LANGSUNG dari salinan PDF resmi di repository.kemkes.go.id/book/668 (Phase 3D.1 audit, 4 Sep 2026). Baris sumber internal TKPI: KZGPI-1990.",
+      "source_food_code": "AP001",
+      "source_food_name": "Nasi",
+      "source_version": "TKPI 2020",
+      "data_status": "verified",
+      "edible_portion_factor": 1.0,
+      "edible_portion_status": "verified",
       "weight_basis": "edible",
-      "edible_portion_source": "",
-      "edible_portion_source_reference": ""
+      "edible_portion_source": "Tabel Komposisi Pangan Indonesia (TKPI) 2020, Kementerian Kesehatan RI",
+      "edible_portion_source_reference": "BDD = 100% pada entri Nasi (AP001, halaman 10), dikonfirmasi dari PDF resmi; beras yang sudah dimasak tidak memiliki bagian tak layak makan, sehingga faktor ini tidak mengubah perhitungan"
     },
     {
       "id": "ayam_goreng",
@@ -42,7 +45,7 @@
       "edible_portion_status": "not_applicable",
       "weight_basis": "gross",
       "edible_portion_source": "",
-      "edible_portion_source_reference": "BDD factor not yet verified from an official source; no correction is applied"
+      "edible_portion_source_reference": "BDD factor not yet verified from an official source; no correction is applied. Phase 3D investigation: TKPI only lists branded/regional ayam goreng (Kentucky FP025/FP026/FP027, Pasundan FP029, Pioneer FP031, Kalasan FP024) or single-cut entries (usus FP002) - no generic unbranded whole-piece entry exists, so the match remains ambiguous and the record stays provisional. USDA fallback (FDC 171448) continues to serve this food."
     },
     {
       "id": "telur_rebus",
@@ -57,7 +60,7 @@
       "carbs_per_100g": 1.1,
       "fat_per_100g": 10.6,
       "source": "USDA FoodData Central, SR Legacy",
-      "source_reference": "Egg, whole, cooked, hard-boiled (values not yet checked against the cited source)",
+      "source_reference": "Egg, whole, cooked, hard-boiled (values not yet checked against the cited source). Phase 3D investigation: TKPI's native egg entries (Telur ayam kampung HR001, Telur ayam ras HR002/HR003/HR004) are all 'segar' (raw/fresh), not boiled - no TKPI-native cooked entry was found. A 'rebus' entry exists on the andrafarm mirror but is explicitly sourced from USDA, not TKPI, so it does not change this record's provenance. Remains provisional due to preparation-state mismatch.",
       "data_status": "provisional",
       "edible_portion_factor": null,
       "edible_portion_status": "not_applicable",
@@ -79,7 +82,7 @@
       "carbs_per_100g": 0.8,
       "fat_per_100g": 15.3,
       "source": "USDA FoodData Central, SR Legacy",
-      "source_reference": "Egg, whole, cooked, fried (values not yet checked against the cited source)",
+      "source_reference": "Egg, whole, cooked, fried (values not yet checked against the cited source). Phase 3D investigation: same as telur_rebus - TKPI's native egg entries are all raw/fresh (segar); the 'telur dadar' entry on the andrafarm mirror is explicitly sourced from USDA, not TKPI. Remains provisional due to preparation-state mismatch.",
       "data_status": "provisional",
       "edible_portion_factor": null,
       "edible_portion_status": "not_applicable",
@@ -100,7 +103,7 @@
       "carbs_per_100g": 7.6,
       "fat_per_100g": 10.8,
       "source": "USDA FoodData Central, SR Legacy",
-      "source_reference": "Tempeh (values not yet checked against the cited source)",
+      "source_reference": "Tempeh (values not yet checked against the cited source). Phase 3D investigation: TKPI distinguishes Tempe kedelai murni, mentah (CP077: 201 kcal/20.8g protein/13.5g carb/8.8g fat) from ...,  goreng (CP076: 350 kcal/24.5g protein/10.4g carb/26.6g fat) - a large difference. Gemini's plain 'tempe' detection from a meal photo does not indicate which preparation state was seen, so this remains an ambiguous match and is not promoted. See Phase 3D report for both candidate values.",
       "data_status": "provisional",
       "edible_portion_factor": null,
       "edible_portion_status": "not_applicable",
@@ -121,7 +124,7 @@
       "carbs_per_100g": 2.8,
       "fat_per_100g": 8.7,
       "source": "USDA FoodData Central, SR Legacy",
-      "source_reference": "Tofu, raw, firm, prepared with calcium sulfate (values not yet checked against the cited source)",
+      "source_reference": "Tofu, raw, firm, prepared with calcium sulfate (values not yet checked against the cited source). Phase 3D investigation: TKPI distinguishes Tahu, mentah (CP061: 80 kcal/10.9g protein/0.8g carb/4.7g fat) from Tahu goreng (CP062: 115 kcal/9.7g protein/2.5g carb/8.5g fat). Gemini's plain 'tahu' detection does not indicate preparation state, so this remains an ambiguous match and is not promoted.",
       "data_status": "provisional",
       "edible_portion_factor": null,
       "edible_portion_status": "not_applicable",
@@ -142,13 +145,38 @@
       "carbs_per_100g": 22.8,
       "fat_per_100g": 0.3,
       "source": "USDA FoodData Central, SR Legacy",
-      "source_reference": "Bananas, raw (values not yet checked against the cited source)",
+      "source_reference": "Bananas, raw (values not yet checked against the cited source). Phase 3D investigation: TKPI distinguishes banana varieties (Pisang ambon ER074: 108 kcal, BDD 75%; Pisang angleng ER075; Pisang ketip ER082; and others), each with different nutrient values. Gemini's plain 'pisang' detection does not indicate variety, so silently picking one (e.g. ambon) would be an arbitrary match per Phase 3D policy. Remains provisional.",
       "data_status": "provisional",
       "edible_portion_factor": null,
       "edible_portion_status": "not_applicable",
       "weight_basis": "edible",
       "edible_portion_source": "",
       "edible_portion_source_reference": ""
+    },
+    {
+      "id": "kol",
+      "name": "Kol",
+      "aliases": [
+        "kol",
+        "kubis",
+        "cabbage",
+        "kol putih"
+      ],
+      "calories_per_100g": 29,
+      "protein_per_100g": 1.4,
+      "carbs_per_100g": 5.3,
+      "fat_per_100g": 0.2,
+      "source": "Tabel Komposisi Pangan Indonesia (TKPI) 2020, Kementerian Kesehatan RI (ISBN 9786233010368)",
+      "source_reference": "Kool merah, kool putih (kode DR114), tabel 4.4 Sayuran dan Hasil Olahannya, halaman 36 - dikonfirmasi LANGSUNG dari salinan PDF resmi di repository.kemkes.go.id/book/668 (Phase 3D.1 audit, 4 Sep 2026). Baris sumber internal TKPI: DABM-1964. TKPI menggabungkan kol merah dan kol putih ke dalam satu entri (ejaan resmi 'Kool'); entri ini eksplisit mencakup 'kool putih', varian umum yang dimaksud 'kol' pada deteksi Gemini.",
+      "source_food_code": "DR114",
+      "source_food_name": "Kool merah, kool putih",
+      "source_version": "TKPI 2020",
+      "data_status": "verified",
+      "edible_portion_factor": 0.75,
+      "edible_portion_status": "verified",
+      "weight_basis": "edible",
+      "edible_portion_source": "Tabel Komposisi Pangan Indonesia (TKPI) 2020, Kementerian Kesehatan RI",
+      "edible_portion_source_reference": "BDD = 75% pada entri Kool merah, kool putih (DR114, halaman 36), dikonfirmasi dari PDF resmi. Belum diaktifkan: BDD ini mendeskripsikan penyiangan kol utuh mentah (bonggol, daun luar dibuang), sedangkan estimasi gram Gemini dari foto makanan yang sudah tersaji kemungkinan besar sudah berupa porsi yang dapat dimakan. Karena ada ketidakpastian gross vs edible untuk kasus ini, weight_basis diset 'edible' agar faktor tidak diterapkan otomatis, sesuai kebijakan Phase 3D."
     }
   ]
 }

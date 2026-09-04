@@ -61,6 +61,13 @@ class FoodRecord:
     # PROVISIONAL rather than VERIFIED.
     data_status: str = PROVISIONAL
 
+    # Fine-grained provenance for the *nutrition* source (Phase 3D). Optional
+    # and additive - existing records with only source/source_reference keep
+    # working unchanged.
+    source_food_code: str = ""       # e.g. TKPI code "DR039"
+    source_food_name: str = ""       # official name as published by the source
+    source_version: str = ""         # e.g. "TKPI 2019"
+
     # Edible portion (BDD - Bagian yang Dapat Dimakan). Tracked separately
     # from the nutrition values: a record can have verified nutrition and an
     # unverified BDD factor, or the reverse.
@@ -157,6 +164,9 @@ def _load_records(path: Path) -> list[FoodRecord]:
                     fat_per_100g=float(raw["fat_per_100g"]),
                     source=raw.get("source", ""),
                     source_reference=raw.get("source_reference", ""),
+                    source_food_code=str(raw.get("source_food_code", "")),
+                    source_food_name=str(raw.get("source_food_name", "")),
+                    source_version=str(raw.get("source_version", "")),
                     data_status=str(raw.get("data_status", PROVISIONAL)).strip().lower(),
                     **_edible_portion_fields(raw),
                 )
