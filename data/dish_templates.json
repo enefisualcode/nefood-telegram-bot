@@ -1,0 +1,177 @@
+{
+  "_comment": "Phase 3E Indonesian dish foundation. Every entry here is a DECOMPOSITION HINT, not a recipe: it lists what a compound dish is typically made of, so that a future image-based estimator can look for and estimate each visible component separately (each component is then matched against data/foods.json / USDA like any other detected food). NO entry may carry calories/protein/fat/carbs or any gram amount - services/dish_matcher.py enforces this at load time. 'variability' is one of: 'fixed_components' (a stable, enumerable set of parts - though individual components may still be marked optional), 'ambiguous' (the bare name alone does not determine which distinct dish is meant), or 'variable' (composition varies too much to enumerate - only a category description is given). This is NOT wired into bot.py or Gemini in this phase.",
+  "dishes": [
+    {
+      "id": "pecel_lele",
+      "name": "Pecel lele",
+      "aliases": ["pecel lele"],
+      "variability": "fixed_components",
+      "components": [
+        {"role": "protein", "typical_food": "lele goreng", "optional": false, "notes": "catfish, deep-fried whole"},
+        {"role": "condiment", "typical_food": "sambal", "optional": false, "notes": "usually sambal bawang or sambal terasi"},
+        {"role": "vegetable", "typical_food": "kol", "optional": false, "notes": "raw, sliced, served as lalapan"},
+        {"role": "vegetable", "typical_food": "timun", "optional": false, "notes": "raw, sliced, served as lalapan"},
+        {"role": "herb", "typical_food": "kemangi", "optional": false, "notes": "raw sprig, served as lalapan"},
+        {"role": "staple", "typical_food": "nasi putih", "optional": true, "notes": "commonly served alongside but sold/ordered separately; detect and match independently"}
+      ],
+      "notes": "The fish, sambal, and raw vegetables (lalapan) are the defining parts; rice is a separate, independently-detectable staple, not part of the dish itself."
+    },
+    {
+      "id": "nasi_uduk",
+      "name": "Nasi uduk",
+      "aliases": ["nasi uduk"],
+      "variability": "fixed_components",
+      "components": [
+        {"role": "staple", "typical_food": "nasi uduk", "optional": false, "notes": "rice cooked in coconut milk; nutritionally distinct from plain nasi putih - do not conflate the two"},
+        {"role": "protein", "typical_food": "ayam goreng", "optional": true, "notes": "one of several common accompaniments, not guaranteed present"},
+        {"role": "protein", "typical_food": "tempe goreng", "optional": true, "notes": "one of several common accompaniments"},
+        {"role": "protein", "typical_food": "telur balado", "optional": true, "notes": "one of several common accompaniments"},
+        {"role": "condiment", "typical_food": "sambal kacang", "optional": true, "notes": "one of several common accompaniments"},
+        {"role": "vegetable", "typical_food": "timun", "optional": true, "notes": "raw, sliced"},
+        {"role": "side", "typical_food": "kerupuk", "optional": true, "notes": "cracker, often included"}
+      ],
+      "notes": "Only the coconut-milk rice itself is guaranteed present. It is conventionally sold as a plate with a vendor-chosen selection of side dishes - closer to nasi padang's variability than to pecel lele's fixed set, so every side beyond the rice is marked optional and must be detected, not assumed."
+    },
+    {
+      "id": "martabak_telur",
+      "name": "Martabak telur",
+      "aliases": ["martabak telur", "martabak telor"],
+      "variability": "fixed_components",
+      "components": [
+        {"role": "dough", "typical_food": "kulit martabak", "optional": false, "notes": "thin savory pastry dough, pan-fried"},
+        {"role": "filling", "typical_food": "telur", "optional": false, "notes": "egg, the defining filling"},
+        {"role": "filling", "typical_food": "daging atau ayam cincang", "optional": true, "notes": "minced beef or chicken, common but not universal"},
+        {"role": "filling", "typical_food": "daun bawang", "optional": true, "notes": "scallion, mixed into the filling"},
+        {"role": "side", "typical_food": "acar", "optional": true, "notes": "cucumber-carrot pickle, usually served alongside"},
+        {"role": "side", "typical_food": "kuah kari", "optional": true, "notes": "thin curry sauce for dipping, sometimes served alongside"}
+      ],
+      "notes": "Savory. Nutritionally very different from martabak manis - never conflate the two under a bare 'martabak' match."
+    },
+    {
+      "id": "martabak_manis",
+      "name": "Martabak manis",
+      "aliases": ["martabak manis", "terang bulan", "kue bandung"],
+      "variability": "fixed_components",
+      "components": [
+        {"role": "dough", "typical_food": "adonan martabak manis", "optional": false, "notes": "thick, sweet, yeasted pancake, cooked in a heavy pan; folded over its topping"},
+        {"role": "topping", "typical_food": "topping manis (variasi)", "optional": false, "notes": "VARIABLE - common toppings include cokelat meses, keju parut, kacang tanah cincang, susu kental manis, wijen, in any combination; the specific topping(s) present must be detected individually, never assumed"}
+      ],
+      "notes": "Sweet. Nutritionally very different from martabak telur - never conflate the two under a bare 'martabak' match. The topping combination varies per order and materially changes sugar/fat content, so it is deliberately not enumerated as a fixed list."
+    },
+    {
+      "id": "nasi_goreng",
+      "name": "Nasi goreng",
+      "aliases": ["nasi goreng"],
+      "variability": "fixed_components",
+      "components": [
+        {"role": "staple", "typical_food": "nasi goreng", "optional": false, "notes": "fried rice base, already seasoned; nutritionally distinct from plain nasi putih"},
+        {"role": "protein", "typical_food": "telur", "optional": true, "notes": "ceplok, dadar, or orak-arik style; common but not universal"},
+        {"role": "protein", "typical_food": "ayam suwir atau seafood", "optional": true, "notes": "protein mix-in varies widely by vendor/order"},
+        {"role": "side", "typical_food": "acar timun", "optional": true, "notes": "cucumber pickle, commonly served alongside"},
+        {"role": "side", "typical_food": "kerupuk", "optional": true, "notes": "cracker, commonly served alongside"},
+        {"role": "garnish", "typical_food": "irisan tomat dan mentimun", "optional": true, "notes": "raw garnish, commonly served alongside"}
+      ],
+      "notes": "The rice itself is already a composite (cooked with seasoning, sometimes small mix-ins) - treat 'nasi goreng' as its own staple, not as plain rice plus separate seasoning."
+    },
+    {
+      "id": "mie_ayam",
+      "name": "Mie ayam",
+      "aliases": ["mie ayam", "mi ayam"],
+      "variability": "fixed_components",
+      "components": [
+        {"role": "staple", "typical_food": "mie", "optional": false, "notes": "wheat noodles, usually tossed in seasoned oil"},
+        {"role": "protein", "typical_food": "ayam suwir kecap", "optional": false, "notes": "diced or shredded chicken in sweet soy seasoning, the defining topping"},
+        {"role": "vegetable", "typical_food": "sawi", "optional": true, "notes": "blanched mustard greens, commonly included"},
+        {"role": "side", "typical_food": "pangsit goreng atau pangsit rebus", "optional": true, "notes": "fried or boiled wonton, commonly included"},
+        {"role": "side", "typical_food": "bakso", "optional": true, "notes": "meatball, a common add-on"},
+        {"role": "soup", "typical_food": "kuah kaldu", "optional": true, "notes": "served separately (mie ayam kuah) or omitted (mie ayam kering/'mie ayam yamin')"}
+      ],
+      "notes": "Whether broth is served in the bowl or on the side (or not at all) varies by vendor/order and changes the dish substantially - it is marked optional rather than assumed."
+    },
+    {
+      "id": "bakso",
+      "name": "Bakso",
+      "aliases": ["bakso", "baso"],
+      "variability": "fixed_components",
+      "components": [
+        {"role": "protein", "typical_food": "bakso", "optional": false, "notes": "beef (or mixed) meatball, the defining component"},
+        {"role": "soup", "typical_food": "kuah kaldu", "optional": false, "notes": "clear beef broth, almost always present"},
+        {"role": "staple", "typical_food": "mie atau bihun", "optional": true, "notes": "wheat noodles or rice vermicelli, common but not universal"},
+        {"role": "side", "typical_food": "tahu", "optional": true, "notes": "often tahu bakso (tofu stuffed with meatball mixture)"},
+        {"role": "side", "typical_food": "pangsit goreng", "optional": true, "notes": "fried wonton, common add-on"},
+        {"role": "vegetable", "typical_food": "sawi", "optional": true, "notes": "blanched mustard greens, commonly included"},
+        {"role": "garnish", "typical_food": "seledri dan bawang goreng", "optional": true, "notes": "celery and fried shallots"}
+      ],
+      "notes": "Meatball count/size and which extras are included both vary widely by vendor and order."
+    },
+    {
+      "id": "soto_ayam",
+      "name": "Soto ayam",
+      "aliases": ["soto ayam"],
+      "variability": "fixed_components",
+      "components": [
+        {"role": "protein", "typical_food": "ayam suwir", "optional": false, "notes": "shredded chicken, the defining protein"},
+        {"role": "soup", "typical_food": "kuah kaldu kunyit", "optional": false, "notes": "turmeric-yellow chicken broth"},
+        {"role": "staple", "typical_food": "soun atau bihun", "optional": true, "notes": "glass or rice vermicelli, common but not universal"},
+        {"role": "side", "typical_food": "telur rebus", "optional": true, "notes": "boiled egg, common add-on"},
+        {"role": "vegetable", "typical_food": "kol", "optional": true, "notes": "raw, shredded"},
+        {"role": "garnish", "typical_food": "tomat, seledri, bawang goreng", "optional": true, "notes": "garnish"},
+        {"role": "condiment", "typical_food": "sambal dan jeruk nipis", "optional": true, "notes": "served on the side"},
+        {"role": "staple", "typical_food": "nasi putih atau lontong", "optional": true, "notes": "commonly served alongside but sold/ordered separately; detect and match independently"}
+      ],
+      "notes": "Regional variants (Lamongan, Kudus, Betawi, ...) differ further in broth style and add-ins; this lists the common core, not an exhaustive or fixed recipe."
+    },
+    {
+      "id": "gado_gado",
+      "name": "Gado-gado",
+      "aliases": ["gado-gado", "gado gado"],
+      "variability": "fixed_components",
+      "components": [
+        {"role": "sauce", "typical_food": "bumbu kacang", "optional": false, "notes": "peanut sauce, the defining component, coats everything"},
+        {"role": "vegetable", "typical_food": "sayuran rebus campur", "optional": false, "notes": "mixed boiled vegetables - typically some of kol, tauge, kacang panjang, kangkung, kentang; exact mix varies"},
+        {"role": "protein", "typical_food": "tahu", "optional": true, "notes": "fried or boiled tofu, commonly included"},
+        {"role": "protein", "typical_food": "tempe", "optional": true, "notes": "fried or boiled tempeh, commonly included"},
+        {"role": "protein", "typical_food": "telur rebus", "optional": true, "notes": "boiled egg, common add-on"},
+        {"role": "staple", "typical_food": "lontong atau ketupat", "optional": true, "notes": "compressed rice cake, commonly included"},
+        {"role": "side", "typical_food": "kerupuk", "optional": true, "notes": "cracker, commonly included"}
+      ],
+      "notes": "The exact vegetable mix and which proteins/staples are included both vary by vendor and order; only the peanut sauce and 'some mixed boiled vegetables' are near-universal."
+    },
+    {
+      "id": "ketoprak",
+      "name": "Ketoprak",
+      "aliases": ["ketoprak"],
+      "variability": "fixed_components",
+      "components": [
+        {"role": "staple", "typical_food": "ketupat atau lontong", "optional": false, "notes": "compressed rice cake, the defining staple"},
+        {"role": "sauce", "typical_food": "bumbu kacang", "optional": false, "notes": "peanut sauce, the defining component"},
+        {"role": "protein", "typical_food": "tahu", "optional": false, "notes": "fried tofu, near-universal in ketoprak"},
+        {"role": "staple", "typical_food": "bihun", "optional": true, "notes": "rice vermicelli, commonly included"},
+        {"role": "vegetable", "typical_food": "tauge", "optional": true, "notes": "bean sprouts, commonly included"},
+        {"role": "side", "typical_food": "kerupuk", "optional": true, "notes": "cracker, commonly included"},
+        {"role": "garnish", "typical_food": "bawang goreng", "optional": true, "notes": "fried shallots"}
+      ],
+      "notes": "Closely related to gado-gado but built on ketupat/lontong + tahu + peanut sauce as the near-fixed core, rather than gado-gado's mixed-vegetable emphasis."
+    },
+    {
+      "id": "nasi_padang",
+      "name": "Nasi padang",
+      "aliases": ["nasi padang"],
+      "variability": "variable",
+      "components": [
+        {"role": "staple", "typical_food": "nasi putih", "optional": false, "notes": "the only near-universal component"},
+        {"role": "lauk", "typical_food": "lauk pilihan (sangat beragam)", "optional": true, "notes": "EXAMPLE ONLY, not exhaustive: rendang, ayam pop, ayam bakar, gulai tunjang, gulai ikan, dendeng balado, paru goreng, sayur singkong, sayur nangka, sambal ijo, perkedel, telur dadar - a plate typically has several of these, chosen per vendor/order"}
+      ],
+      "notes": "This is a MEAL CATEGORY, not a dish with a fixed identity beyond rice: the selection, number, and portion of side dishes (lauk) varies enormously by vendor and by what the customer chooses. Each visible lauk on the plate must be detected and matched as its own separate food - never assume a 'standard' nasi padang composition."
+    },
+    {
+      "id": "martabak",
+      "name": "Martabak",
+      "aliases": ["martabak"],
+      "variability": "ambiguous",
+      "possible_resolutions": ["martabak_telur", "martabak_manis"],
+      "components": [],
+      "notes": "Bare 'martabak' does not say whether this is the savory egg-and-meat martabak telur or the sweet martabak manis - the two are nutritionally very different (savory fried dough with egg/meat filling vs. a sugary, buttery sweet pancake with rich toppings). This entry must never be silently resolved to either specific dish; a caller must ask for clarification or use additional visual evidence (color, shape, presence of chocolate/toppings vs. visible egg/meat filling) to pick martabak_telur or martabak_manis explicitly."
+    }
+  ]
+}

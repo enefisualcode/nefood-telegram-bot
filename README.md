@@ -2,9 +2,12 @@
 
 A Telegram bot that recognises the foods in a photo using the Google Gemini API.
 
-**Current phase: 3D — verified Indonesian (TKPI) food dataset foundation.** The bot detects visible
-foods, estimates portions, and — after the user confirms — calculates nutrition from a
-local curated database.
+**Current phase: 3E — TKPI extraction pipeline + Indonesian dish foundation (pilot).**
+The bot detects visible foods, estimates portions, and — after the user confirms — calculates
+nutrition from a local curated database. Phase 3E adds a reproducible pipeline for turning
+official TKPI 2020 pages into reviewable candidates, plus a compound-dish decomposition
+foundation — **neither is wired into the running bot yet**; both are offline tooling and data
+files only.
 
 Nutrition values never come from the vision model. Gemini only identifies foods and
 estimates grams; all calorie and macro values come from `data/foods.json`, where every
@@ -81,6 +84,67 @@ branded/regional (Kentucky, Pasundan, ...), and `tempe`/`tahu` split into
 raw/fried entries with very different values while Gemini's detection does not say
 which one was seen. Silently picking one would misrepresent the food, so those stay
 `provisional` and continue to rely on the USDA fallback.
+
+### TKPI 2020 extraction pipeline (Phase 3E — pilot, partial coverage)
+
+`scripts/extract_tkpi_2020.py` transcribes rows from the official **Tabel Komposisi
+Pangan Indonesia 2020** (Kementerian Kesehatan RI, ISBN 9786233010368,
+repository.kemkes.go.id/book/668) into `data/tkpi_2020_candidates.json`. The official
+document is a 140-page **scanned** PDF with no text layer; no OCR tool is available in
+this environment, so every row is read by eye off the rendered page and recorded with
+`extraction_method: "manual_visual_transcription"` — never labelled as automated OCR.
+
+**This pilot covers 4 subsections across 3 of the source's ~30+ food-group tables**
+(Serealia AP/AR, Umbi Berpati BR, Sayuran DR) — **24 rows in total. This is not the
+complete TKPI 2020 dataset**, and none of these rows are production data. A candidate
+row's `extraction_status` (`parsed` / `needs_review` / `rejected`) describes whether the
+row is structurally well-formed — it says nothing about whether the values are correct.
+Correctness is tracked separately as `verification_status` (`unverified` / `spot_checked`
+/ `officially_verified`), and only changes when a human has independently compared the
+row against the *rendered* official PDF — never against the candidate file itself.
+
+`reports/phase_3e_tkpi_audit.md` documents that independent audit: all 24 rows were
+checked (comfortably over the required minimum of 15), including AP001 and DR114 (the
+two records already `verified` in `data/foods.json` since Phase 3D — both re-confirmed
+as an exact match). **5 of the 22 new candidate rows had a wrong digit or an unclear
+name on the first, lower-zoom read**, caught only by looking a second time at higher
+zoom — concrete evidence for why "parsed" must never be read as "verified". One row
+(DR115) still has an illegible food name and is deliberately held at `unverified`.
+
+`scripts/audit_tkpi_candidates.py` runs the checks a machine actually can run:
+required fields, plausible food codes, non-negative macros, BDD in [0, 100], duplicate
+codes, and a high-risk screen (very high/low macros, all-zero rows, suspicious
+precision) — none of which fired on this pilot's data.
+
+**Promotion is a separate, explicit step and nothing has been promoted.**
+`data/tkpi_approved.json` is an approval ledger — an entry there means a human
+explicitly confirmed every field of one candidate against the rendered PDF, but by
+itself it still changes nothing. `scripts/tkpi_promotion.py` refuses to create an
+approval for any candidate that isn't `extraction_status=parsed` and
+`verification_status` in (`spot_checked`, `officially_verified`); `scripts/promote_tkpi_candidate.py`
+refuses to write a food record without a matching approval, and refuses to overwrite an
+existing food id. **In Phase 3E, `data/foods.json` was not modified at all** — the
+approval ledger ships empty, and the mechanism is proven by tests against temporary
+files, not by running it against production data.
+
+### Indonesian compound-dish foundation (Phase 3E — not yet wired in)
+
+`data/dish_templates.json` + `services/dish_matcher.py` add decomposition *hints* for
+common Indonesian compound dishes (pecel lele, nasi uduk, martabak telur/manis, nasi
+goreng, mie ayam, bakso, soto ayam, gado-gado, ketoprak, nasi padang) — e.g. pecel lele
+is hinted as lele goreng + sambal + kol + timun + kemangi. **No dish template carries a
+gram amount or a nutrition value of any kind** — `dish_matcher.py` refuses to load a
+template file that smuggles one in. The intent is for a future image-based estimator to
+detect and match each visible component separately, the same way single foods are
+matched today — not to fabricate a fixed recipe.
+
+Some dishes are marked `variable` (`nasi padang` — a rice-plus-any-selection-of-lauk
+meal category with no fixed identity beyond the rice) rather than
+`fixed_components`. A bare **"martabak"** is marked `ambiguous` on purpose: it does not
+say whether the savory `martabak_telur` or the sweet `martabak_manis` is meant, and the
+two are nutritionally very different — this template must never be silently resolved to
+either one. This foundation is **not connected to `bot.py` or `services/food_vision.py`
+in this phase**.
 
 ### Data status — read before trusting any number
 
@@ -164,7 +228,17 @@ services/food_vision.py          Gemini image analysis (no Telegram code)
 services/food_matcher.py         Name -> food record lookup
 services/nutrition_calculator.py Deterministic per-100 g scaling
 services/usda_food_data.py       USDA FoodData Central fallback
+services/dish_matcher.py         Compound-dish decomposition hints (Phase 3E, not wired in)
 data/foods.json                  Curated nutrition database (sourced values only)
+data/tkpi_2020_candidates.json   TKPI extraction candidates - NOT production data (Phase 3E)
+data/tkpi_approved.json          Explicit approval ledger for TKPI promotion (ships empty)
+data/dish_templates.json         Indonesian compound-dish decomposition hints (Phase 3E)
+scripts/tkpi_extraction.py       Candidate data model + validation
+scripts/extract_tkpi_2020.py     Runs the pilot extraction -> data/tkpi_2020_candidates.json
+scripts/audit_tkpi_candidates.py Structural audit (duplicates, ranges, high-risk screen)
+scripts/tkpi_promotion.py        Explicit approval ledger (never touches foods.json)
+scripts/promote_tkpi_candidate.py Applies one approved candidate to a foods.json-shaped file
+reports/phase_3e_tkpi_audit.md   Independent PDF audit findings (Phase 3E)
 tests/                           Unit tests
 requirements.txt          Dependencies
 .env.example              Template for .env (never commit .env)

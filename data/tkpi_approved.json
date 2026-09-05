@@ -1,0 +1,4 @@
+{
+  "_comment": "Approval ledger for the Phase 3E TKPI promotion pipeline. An entry here records that a HUMAN explicitly confirmed every field of one candidate row against the rendered official PDF - it does NOT by itself change data/foods.json. scripts/promote_tkpi_candidate.py still requires a separate, explicit run to apply an approved entry to production, and refuses to run against any candidate that is not both extraction_status='parsed' and verification_status in ('spot_checked', 'officially_verified'). No candidate has been promoted through this pipeline in Phase 3E - data/foods.json was not touched by this phase.",
+  "approved": []
+}
