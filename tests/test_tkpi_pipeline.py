@@ -302,22 +302,32 @@ class PartialCoverageHonestyTest(unittest.TestCase):
 
 
 class ExistingSourcePriorityUnchangedTest(unittest.TestCase):
-    """16. existing local -> USDA -> unavailable behaviour unchanged."""
+    """16. existing local -> USDA -> unavailable behaviour unchanged.
 
-    def test_foods_json_still_loads_and_still_has_its_two_verified_records(self):
-        from services.food_matcher import VERIFIED, get_matcher
+    Phase 3E/3F/3F.1 never touched foods.json, so at the time these were
+    written "unchanged" meant "byte-identical to git HEAD" and "exactly
+    {nasi_putih, kol}". Phase 3G is explicitly authorized to add new
+    verified records (coverage expansion) - so what must actually stay
+    unchanged is the *behaviour and content of the pre-existing records*,
+    not the file's size or its exact verified-id set.
+    """
+
+    PRE_PHASE_3G_VERIFIED_IDS = {"nasi_putih", "kol"}
+
+    def test_foods_json_still_loads_and_still_has_its_pre_existing_verified_records(self):
+        from services.food_matcher import get_matcher
         matcher = get_matcher()
         verified_ids = {r.id for r in matcher.records if r.is_verified}
-        self.assertEqual(verified_ids, {"nasi_putih", "kol"})
+        self.assertTrue(self.PRE_PHASE_3G_VERIFIED_IDS.issubset(verified_ids))
 
-    def test_foods_json_file_is_byte_identical_to_git_head(self):
-        # Phase 3E must not bulk-modify foods.json at all.
-        import subprocess
-        result = subprocess.run(
-            ["git", "diff", "--exit-code", "HEAD", "--", str(FOODS_PATH)],
-            cwd=FOODS_PATH.parent.parent, capture_output=True,
-        )
-        self.assertEqual(result.returncode, 0, "data/foods.json differs from git HEAD")
+    def test_pre_existing_records_are_untouched_by_later_phases(self):
+        # Phase 3G may only ever APPEND new records - it must never modify
+        # a record that predates it (Phase 3D/3E's own verified entries).
+        payload = json.loads(FOODS_PATH.read_text(encoding="utf-8"))
+        by_id = {f["id"]: f for f in payload["foods"]}
+        self.assertEqual(by_id["nasi_putih"]["source_food_code"], "AP001")
+        self.assertEqual(by_id["kol"]["source_food_code"], "DR114")
+        self.assertEqual(by_id["kol"]["edible_portion_factor"], 0.75)
 
     def test_the_two_known_verified_tkpi_records_are_unchanged(self):
         payload = json.loads(FOODS_PATH.read_text(encoding="utf-8"))

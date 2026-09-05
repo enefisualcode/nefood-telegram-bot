@@ -9,8 +9,10 @@ This module knows nothing about Telegram.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -235,6 +237,18 @@ class UsdaClient:
         # Keyed by the normalized Indonesian food name.
         self._cache: dict[str, UsdaFood | None] = {}
         self.request_count = 0
+        # Phase 3F.1: cumulative wall-clock time actually spent fetching
+        # (never waiting on someone else's in-flight fetch), for the
+        # "USDA lookup time" performance log - not per-food, just a total.
+        self.total_fetch_seconds = 0.0
+        # Phase 3F.1: when calculate_meal resolves several foods concurrently
+        # (asyncio.gather), two detected items with the same canonical name
+        # (e.g. "kol" appearing twice in one meal) must not each fire their
+        # own HTTP request pair - the second concurrent caller awaits the
+        # first's in-flight task instead. Sequential callers are unaffected:
+        # by the time a later call arrives, the cache above already has the
+        # answer and this dict is empty for that key.
+        self._inflight: dict[str, asyncio.Task] = {}
 
     @property
     def enabled(self) -> bool:
@@ -282,11 +296,50 @@ class UsdaClient:
 
         return None
 
+    async def _fetch(self, key: str, food_name: str, mapping: UsdaQuery) -> UsdaFood | None:
+        """Do the actual search + detail round trip for one canonical food.
+
+        Never raises: any failure means "no data for this food", so one bad
+        lookup cannot break the rest of the meal. Only ever called once per
+        key at a time - see `lookup`'s in-flight de-duplication.
+        """
+        fetch_start = time.perf_counter()
+        try:
+            try:
+                candidate = await self.search(mapping)
+                if candidate is None:
+                    logger.info("No safe USDA match for %r", food_name)
+                    self._cache[key] = None
+                    return None
+
+                # Re-fetch the full record: search results can omit nutrients.
+                detail = await self._get(f"/food/{candidate['fdcId']}", {"format": "full"})
+                food = to_usda_food(detail, query=mapping.query)
+            except Exception as exc:
+                # Timeouts, 429s, bad JSON, missing nutrients - all mean the same
+                # thing to the caller. Not cached, so a transient failure can retry.
+                logger.warning("USDA lookup failed for %r: %s", food_name, self._redact(exc))
+                return None
+
+            logger.info(
+                "USDA matched %r -> FDC %s (%s, %s)",
+                food_name,
+                food.fdc_id,
+                food.description,
+                food.data_type,
+            )
+            self._cache[key] = food
+            return food
+        finally:
+            # Phase 3F.1 timing only - never affects the returned value.
+            self.total_fetch_seconds += time.perf_counter() - fetch_start
+
     async def lookup(self, food_name: str) -> UsdaFood | None:
         """Look up one Indonesian food name. Returns None when unavailable.
 
-        Never raises: any failure means "no data for this food", so one bad
-        lookup cannot break the rest of the meal.
+        Safe to call concurrently (e.g. via asyncio.gather while resolving a
+        whole meal at once): concurrent calls for the same canonical food
+        share one in-flight fetch rather than issuing duplicate requests.
         """
         key = _normalize(food_name)
 
@@ -304,31 +357,17 @@ class UsdaClient:
             logger.info("USDA_API_KEY not set; skipping fallback for %r", food_name)
             return None
 
+        existing = self._inflight.get(key)
+        if existing is not None:
+            logger.debug("Joining in-flight USDA lookup for %r", food_name)
+            return await existing
+
+        task = asyncio.ensure_future(self._fetch(key, food_name, mapping))
+        self._inflight[key] = task
         try:
-            candidate = await self.search(mapping)
-            if candidate is None:
-                logger.info("No safe USDA match for %r", food_name)
-                self._cache[key] = None
-                return None
-
-            # Re-fetch the full record: search results can omit nutrients.
-            detail = await self._get(f"/food/{candidate['fdcId']}", {"format": "full"})
-            food = to_usda_food(detail, query=mapping.query)
-        except Exception as exc:
-            # Timeouts, 429s, bad JSON, missing nutrients - all mean the same
-            # thing to the caller. Not cached, so a transient failure can retry.
-            logger.warning("USDA lookup failed for %r: %s", food_name, self._redact(exc))
-            return None
-
-        logger.info(
-            "USDA matched %r -> FDC %s (%s, %s)",
-            food_name,
-            food.fdc_id,
-            food.description,
-            food.data_type,
-        )
-        self._cache[key] = food
-        return food
+            return await task
+        finally:
+            self._inflight.pop(key, None)
 
 
 _default_client: UsdaClient | None = None

@@ -28,6 +28,7 @@ from services.food_vision import (
     FoodVisionError,
     analyze_food_image,
 )
+from services.image_processing import preprocess_image
 from services.nutrition_calculator import (
     SOURCE_USDA,
     UNMATCHED,
@@ -35,6 +36,9 @@ from services.nutrition_calculator import (
     MealNutrition,
     calculate_meal,
 )
+from services.perf import StageTimer, get_tracker
+from services.usda_food_data import get_client as get_usda_client
+from services.vision_cache import get_cache as get_vision_cache
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
@@ -59,6 +63,8 @@ HELP_MESSAGE = (
 )
 
 ANALYZING_MESSAGE = "🔍 Sedang menganalisis makanan..."
+ANALYZING_DETAIL_MESSAGE = "Mengenali jenis makanan dan memperkirakan porsinya."
+RECOGNIZED_MESSAGE = "🍽️ Makanan berhasil dikenali.\nMenyiapkan hasil..."
 
 NO_FOOD_MESSAGE = (
     "🤔 Maaf, saya tidak dapat mengenali makanan pada foto tersebut dengan jelas.\n\n"
@@ -214,6 +220,13 @@ def format_analysis(analysis: FoodAnalysis, dish_matcher: DishMatcher | None = N
     return _format_dish_analysis(analysis, decomposed)
 
 
+def build_progress_text() -> str:
+    """The single progress message's first state - includes a rough,
+    history-based duration estimate (never a hard-coded or exact promise)."""
+    tracker = get_tracker()
+    return "\n".join([ANALYZING_MESSAGE, ANALYZING_DETAIL_MESSAGE, "", tracker.estimate_message()])
+
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     user_id = user.id if user else "unknown"
@@ -221,33 +234,69 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     message = update.message
     await message.chat.send_action(ChatAction.TYPING)
-    await message.reply_text(ANALYZING_MESSAGE)
+
+    # One message, edited through each state, instead of a growing thread of
+    # separate replies - see services/perf.py for the estimate behind it.
+    progress_message = await message.reply_text(build_progress_text())
+
+    timer = StageTimer()
 
     # The last PhotoSize is the highest resolution Telegram offers.
     photo = message.photo[-1]
 
     try:
-        photo_file = await photo.get_file()
-        image_bytes = bytes(await photo_file.download_as_bytearray())
+        with timer.stage("photo_download"):
+            photo_file = await photo.get_file()
+            image_bytes = bytes(await photo_file.download_as_bytearray())
     except TelegramError:
         logger.exception("Failed to download photo for user_id=%s", user_id)
-        await message.reply_text(DOWNLOAD_FAILED_MESSAGE)
+        await progress_message.edit_text(DOWNLOAD_FAILED_MESSAGE)
         return
 
+    with timer.stage("image_preprocess"):
+        processed = preprocess_image(image_bytes)
+        vision_cache = get_vision_cache()
+        cache_key = vision_cache.key_for(processed.image_bytes)
+
+    # Technical detail for logs only - never shown to the user.
+    logger.debug(
+        "photo preprocess user_id=%s original=%dx%d(%dB) processed=%dx%d(%dB) resized=%s",
+        user_id, processed.original_width, processed.original_height, processed.original_bytes,
+        processed.processed_width, processed.processed_height, processed.processed_bytes,
+        processed.was_resized,
+    )
+
     try:
-        analysis = await analyze_food_image(image_bytes)
+        with timer.stage("gemini"):
+            cached = vision_cache.get(cache_key)
+            if cached is not None:
+                analysis = cached
+            else:
+                analysis = await analyze_food_image(processed.image_bytes, mime_type=processed.mime_type)
+                vision_cache.put(cache_key, analysis)
     except FoodVisionError:
         # Details are logged inside the service; never surface them to the user.
         logger.exception("Food analysis failed for user_id=%s", user_id)
-        await message.reply_text(ANALYSIS_FAILED_MESSAGE)
+        await progress_message.edit_text(ANALYSIS_FAILED_MESSAGE)
         return
 
     if not analysis.foods:
-        await message.reply_text(NO_FOOD_MESSAGE)
+        await progress_message.edit_text(NO_FOOD_MESSAGE)
         return
 
+    await progress_message.edit_text(RECOGNIZED_MESSAGE)
+
+    with timer.stage("decomposition"):
+        result_text = format_analysis(analysis)
+
     context.user_data[LAST_ANALYSIS_KEY] = analysis
-    await message.reply_text(format_analysis(analysis), reply_markup=result_keyboard())
+    await progress_message.edit_text(result_text, reply_markup=result_keyboard())
+
+    # Only a fully successful analysis feeds the duration estimate - a
+    # failed/aborted scan (any of the early returns above) never reaches
+    # this line, so it can't corrupt what future users are shown.
+    get_tracker().record(timer.total)
+    logger.info("perf photo_analysis user_id=%s %s", user_id, timer.summary(total_label="total_analysis"))
 
 
 def format_nutrition(meal: MealNutrition) -> str:
@@ -330,12 +379,24 @@ async def handle_portion_callback(
 
     await query.message.reply_text(CONFIRMED_MESSAGE)
 
+    timer = StageTimer()
+    usda_client = get_usda_client()
+    usda_seconds_before = usda_client.total_fetch_seconds
     try:
-        meal = await calculate_meal(analysis.foods)
+        with timer.stage("nutrition_resolution"):
+            meal = await calculate_meal(analysis.foods, usda=usda_client)
     except Exception:
         logger.exception("Nutrition calculation failed for user_id=%s", user.id if user else "unknown")
         await query.message.reply_text(NUTRITION_FAILED_MESSAGE)
         return
+
+    usda_seconds = usda_client.total_fetch_seconds - usda_seconds_before
+    logger.info(
+        "perf nutrition_resolution user_id=%s %s usda_lookup=%.2fs",
+        user.id if user else "unknown",
+        timer.summary(total_label="total_nutrition"),
+        usda_seconds,
+    )
 
     await query.message.reply_text(format_nutrition(meal))
 

@@ -643,6 +643,14 @@ class UsdaCacheTest(unittest.TestCase):
         self.assertEqual(calls["n"], 1)
 
     def test_transient_failure_is_not_cached(self):
+        # Phase 3F.1: two occurrences of the *same* food within one meal are
+        # now resolved concurrently and share a single in-flight USDA fetch
+        # (see UsdaCacheTest.test_concurrent_identical_foods_share_one_fetch
+        # in test_perf_and_progress.py) - so a transient failure there fails
+        # both together, by design, instead of leaving room for one to
+        # "retry" the other's request. What must still hold is that the
+        # failure itself is never cached: a later, separate call is free to
+        # retry fresh and succeed.
         calls = {"n": 0}
 
         def flaky(request):
@@ -654,16 +662,12 @@ class UsdaCacheTest(unittest.TestCase):
             return httpx.Response(200, json=DETAIL_HIT)
 
         client = fake_usda(flaky)
-        meal = run(
-            calculate_meal(
-                [detected("ayam goreng", 100), detected("ayam goreng", 100)],
-                FoodMatcher([]),
-                client,
-            )
-        )
-        # First food failed, second retried and succeeded.
-        self.assertEqual(meal.items[0].status, UNMATCHED)
-        self.assertEqual(meal.items[1].status, COUNTED)
+
+        first = run(calculate_meal([detected("ayam goreng", 100)], FoodMatcher([]), client))
+        self.assertEqual(first.items[0].status, UNMATCHED)
+
+        second = run(calculate_meal([detected("ayam goreng", 100)], FoodMatcher([]), client))
+        self.assertEqual(second.items[0].status, COUNTED)
 
 
 class MixedSourceMealTest(unittest.TestCase):

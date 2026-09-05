@@ -177,6 +177,103 @@
       "weight_basis": "edible",
       "edible_portion_source": "Tabel Komposisi Pangan Indonesia (TKPI) 2020, Kementerian Kesehatan RI",
       "edible_portion_source_reference": "BDD = 75% pada entri Kool merah, kool putih (DR114, halaman 36), dikonfirmasi dari PDF resmi. Belum diaktifkan: BDD ini mendeskripsikan penyiangan kol utuh mentah (bonggol, daun luar dibuang), sedangkan estimasi gram Gemini dari foto makanan yang sudah tersaji kemungkinan besar sudah berupa porsi yang dapat dimakan. Karena ada ketidakpastian gross vs edible untuk kasus ini, weight_basis diset 'edible' agar faktor tidak diterapkan otomatis, sesuai kebijakan Phase 3D."
+    },
+    {
+      "id": "tempe_goreng",
+      "name": "Tempe goreng",
+      "aliases": [
+        "tempe goreng",
+        "tempeh goreng",
+        "fried tempeh"
+      ],
+      "calories_per_100g": 350,
+      "protein_per_100g": 24.5,
+      "carbs_per_100g": 10.4,
+      "fat_per_100g": 26.6,
+      "source": "Tabel Komposisi Pangan Indonesia (TKPI) 2020, Kementerian Kesehatan RI (ISBN 9786233010368)",
+      "source_reference": "Tempe kedelai murni, goreng (kode CP076), tabel 4.3 Kacang, Biji, Bean dan Hasil Olahannya, halaman 28 - dikonfirmasi LANGSUNG dari salinan PDF resmi di repository.kemkes.go.id/book/668 (Phase 3G audit, 5 Sep 2026). Baris sumber internal TKPI: KZGPI-1990. Kode dan nilai ini sudah diidentifikasi sebagai kandidat pada investigasi Phase 3D (lihat catatan pada record 'tempe') tetapi belum diverifikasi langsung terhadap PDF saat itu; audit Phase 3G membaca baris ini langsung dari render PDF resmi dan mengonfirmasi kecocokan persis dengan nilai kandidat tersebut. Dipromosikan sebagai entri terpisah dari 'tempe' (mentah) karena keduanya adalah preparasi yang berbeda secara gizi (goreng menyerap minyak, menaikkan kalori dan lemak secara signifikan).",
+      "source_food_code": "CP076",
+      "source_food_name": "Tempe kedelai murni, goreng",
+      "source_version": "TKPI 2020",
+      "data_status": "verified",
+      "edible_portion_factor": 1.0,
+      "edible_portion_status": "verified",
+      "weight_basis": "edible",
+      "edible_portion_source": "Tabel Komposisi Pangan Indonesia (TKPI) 2020, Kementerian Kesehatan RI",
+      "edible_portion_source_reference": "BDD = 100% pada entri Tempe kedelai murni, goreng (CP076, halaman 28), dikonfirmasi dari PDF resmi; tempe goreng tidak memiliki bagian tak layak makan, sehingga faktor ini tidak mengubah perhitungan."
+    },
+    {
+      "id": "tahu_goreng",
+      "name": "Tahu goreng",
+      "aliases": [
+        "tahu goreng",
+        "fried tofu"
+      ],
+      "calories_per_100g": 115,
+      "protein_per_100g": 9.7,
+      "carbs_per_100g": 2.5,
+      "fat_per_100g": 8.5,
+      "source": "Tabel Komposisi Pangan Indonesia (TKPI) 2020, Kementerian Kesehatan RI (ISBN 9786233010368)",
+      "source_reference": "Tahu goreng (kode CP062), tabel 4.3 Kacang, Biji, Bean dan Hasil Olahannya, halaman 28 - dikonfirmasi LANGSUNG dari salinan PDF resmi di repository.kemkes.go.id/book/668 (Phase 3G audit, 5 Sep 2026). Baris sumber internal TKPI: KZGPI-1990. Kode dan nilai ini sudah diidentifikasi sebagai kandidat pada investigasi Phase 3D (lihat catatan pada record 'tahu') tetapi belum diverifikasi langsung terhadap PDF saat itu; audit Phase 3G membaca baris ini langsung dari render PDF resmi dan mengonfirmasi kecocokan persis dengan nilai kandidat tersebut. Dipromosikan sebagai entri terpisah dari 'tahu' (mentah) karena keduanya adalah preparasi yang berbeda secara gizi.",
+      "source_food_code": "CP062",
+      "source_food_name": "Tahu goreng",
+      "source_version": "TKPI 2020",
+      "data_status": "verified",
+      "edible_portion_factor": 1.0,
+      "edible_portion_status": "verified",
+      "weight_basis": "edible",
+      "edible_portion_source": "Tabel Komposisi Pangan Indonesia (TKPI) 2020, Kementerian Kesehatan RI",
+      "edible_portion_source_reference": "BDD = 100% pada entri Tahu goreng (CP062, halaman 28), dikonfirmasi dari PDF resmi; tahu goreng tidak memiliki bagian tak layak makan, sehingga faktor ini tidak mengubah perhitungan."
+    },
+    {
+      "id": "selada",
+      "name": "Selada",
+      "aliases": [
+        "selada",
+        "daun selada",
+        "selada segar",
+        "lettuce"
+      ],
+      "calories_per_100g": 18,
+      "protein_per_100g": 1.2,
+      "carbs_per_100g": 2.9,
+      "fat_per_100g": 0.2,
+      "source": "Tabel Komposisi Pangan Indonesia (TKPI) 2020, Kementerian Kesehatan RI (ISBN 9786233010368)",
+      "source_reference": "Selada, segar (kode DR145), tabel 4.4 Sayuran dan Hasil Olahannya, halaman 37 - dikonfirmasi LANGSUNG dari salinan PDF resmi di repository.kemkes.go.id/book/668 (Phase 3G audit, 5 Sep 2026). Baris sumber internal TKPI: DABM-1964. Entri ini eksplisit 'segar' (mentah/raw), sesuai dengan cara 'daun selada' biasanya terlihat pada foto makanan (mentah, sebagai lalapan atau pelengkap) - bukan hasil olahan/dimasak.",
+      "source_food_code": "DR145",
+      "source_food_name": "Selada, segar",
+      "source_version": "TKPI 2020",
+      "data_status": "verified",
+      "edible_portion_factor": 0.69,
+      "edible_portion_status": "verified",
+      "weight_basis": "edible",
+      "edible_portion_source": "Tabel Komposisi Pangan Indonesia (TKPI) 2020, Kementerian Kesehatan RI",
+      "edible_portion_source_reference": "BDD = 69% pada entri Selada, segar (DR145, halaman 37), dikonfirmasi dari PDF resmi. Belum diaktifkan: BDD ini mendeskripsikan penyiangan selada utuh mentah (akar, daun luar rusak dibuang), sedangkan estimasi gram Gemini dari foto makanan yang sudah tersaji kemungkinan besar sudah berupa porsi yang dapat dimakan. Karena ada ketidakpastian gross vs edible, weight_basis diset 'edible' agar faktor tidak diterapkan otomatis, sesuai kebijakan yang sama dengan 'kol' (Phase 3D)."
+    },
+    {
+      "id": "timun",
+      "name": "Ketimun",
+      "aliases": [
+        "timun",
+        "ketimun",
+        "mentimun",
+        "cucumber"
+      ],
+      "calories_per_100g": 8,
+      "protein_per_100g": 0.2,
+      "carbs_per_100g": 1.4,
+      "fat_per_100g": 0.2,
+      "source": "Tabel Komposisi Pangan Indonesia (TKPI) 2020, Kementerian Kesehatan RI (ISBN 9786233010368)",
+      "source_reference": "Ketimun, segar (kode DR109), tabel 4.4 Sayuran dan Hasil Olahannya, halaman 35 - dikonfirmasi LANGSUNG dari salinan PDF resmi di repository.kemkes.go.id/book/668 (Phase 3G audit, 5 Sep 2026). Baris sumber internal TKPI: KZGPI-1990. TKPI membedakan varietas timun (Ketimun DR109 generik/tanpa kualifikasi regional, Ketimun krai DR110, Ketimun madura DR111 dengan nilai gizi berbeda); DR109 dipilih karena merupakan satu-satunya entri TANPA kualifikasi varietas, sehingga menjadi padanan paling defensif untuk deteksi 'timun' polos dari Gemini (yang juga tidak menyebutkan varietas). USDA fallback yang sudah ada (services/usda_food_data.py, query 'cucumber with peel raw') tetap dipertahankan sebagai jaring pengaman, tetapi tidak lagi dipanggil selama entri lokal ini berstatus verified.",
+      "source_food_code": "DR109",
+      "source_food_name": "Ketimun, segar",
+      "source_version": "TKPI 2020",
+      "data_status": "verified",
+      "edible_portion_factor": 0.55,
+      "edible_portion_status": "verified",
+      "weight_basis": "edible",
+      "edible_portion_source": "Tabel Komposisi Pangan Indonesia (TKPI) 2020, Kementerian Kesehatan RI",
+      "edible_portion_source_reference": "BDD = 55% pada entri Ketimun, segar (DR109, halaman 35), dikonfirmasi dari PDF resmi (nilai ini relatif rendah untuk timun utuh dan sudah diverifikasi ulang tiga kali secara independen terhadap render PDF karena tampak mengejutkan - lihat reports/phase_3g_tkpi_audit.md). Belum diaktifkan: ada ketidakpastian gross vs edible untuk estimasi gram Gemini dari foto makanan yang sudah tersaji, sehingga weight_basis diset 'edible' agar faktor tidak diterapkan otomatis, sesuai kebijakan yang sama dengan 'kol' (Phase 3D)."
     }
   ]
 }

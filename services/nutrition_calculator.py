@@ -6,6 +6,7 @@ calls a model or a network service.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -197,17 +198,26 @@ async def calculate_meal(
     matcher: FoodMatcher | None = None,
     usda: UsdaClient | None = None,
 ) -> MealNutrition:
-    """Resolve every detected food and total up the trusted ones."""
+    """Resolve every detected food and total up the trusted ones.
+
+    Phase 3F.1: foods are resolved concurrently rather than one at a time -
+    a meal with several foods needing the USDA fallback no longer pays for
+    each lookup's network latency in sequence. This changes nothing about
+    the result: order is preserved, a verified local match still never
+    touches the network, a provisional local record still falls through to
+    USDA, and one food's USDA failure still can't affect any other food
+    (resolve_food/UsdaClient.lookup already never raise for a bad lookup).
+    Concurrent identical-name lookups are de-duplicated inside
+    UsdaClient.lookup itself, so this never doubles USDA request volume.
+    """
     matcher = matcher or get_matcher()
     if usda is None:
         usda = get_client()
 
-    items: list[FoodNutrition] = []
-    total = Nutrition()
+    items = list(await asyncio.gather(*(resolve_food(food, matcher, usda) for food in foods)))
 
-    for food in foods:
-        item = await resolve_food(food, matcher, usda)
-        items.append(item)
+    total = Nutrition()
+    for item in items:
         if item.status == COUNTED:
             total = total + item.nutrition
 
