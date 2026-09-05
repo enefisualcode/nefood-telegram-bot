@@ -21,14 +21,15 @@ logger = logging.getLogger(__name__)
 
 PROMPT = """Kamu adalah asisten pengenalan makanan pada foto.
 
-Tugasmu: identifikasi makanan dan minuman yang TERLIHAT pada foto ini.
+Tugasmu: identifikasi makanan dan minuman yang TERLIHAT pada foto ini, dan
+sebutkan setiap komponen yang terlihat secara terpisah dalam daftar "foods".
 
-Aturan:
+Aturan dasar:
 - Gunakan nama makanan dalam Bahasa Indonesia.
-- Jangan mengarang makanan yang tidak terlihat pada foto.
-- Deteksi beberapa makanan bila memang terlihat lebih dari satu.
-- Perkirakan berat porsi dalam gram sebagai bilangan bulat. Perkiraan ini
-  bersifat kasar dan hanya berdasarkan tampilan foto.
+- Jangan mengarang makanan atau komponen yang tidak terlihat pada foto.
+- Deteksi beberapa makanan/komponen bila memang terlihat lebih dari satu.
+- Perkirakan berat porsi dalam gram sebagai bilangan bulat untuk SETIAP
+  komponen. Perkiraan ini bersifat kasar dan hanya berdasarkan tampilan foto.
 - identification_confidence (0-1): seberapa yakin kamu bahwa identitas
   makanan tersebut benar.
 - portion_confidence (0-1): seberapa yakin kamu bahwa perkiraan beratnya
@@ -38,12 +39,51 @@ Aturan:
   misalnya "1 potong", "2 sdm", "1 iris", "1 mangkuk", "1 porsi kecil".
 - Bila ragu, beri nilai confidence yang lebih rendah.
 - JANGAN menghitung kalori, protein, karbohidrat, atau lemak.
+- JANGAN menyertakan nilai BDD (bagian dapat dimakan) atau nilai gizi
+  apa pun - tugasmu murni visual, bukan basis data gizi.
 - Bila tidak ada makanan yang dapat dikenali, kembalikan daftar foods kosong.
-- notes bersifat opsional dan harus singkat (satu kalimat)."""
+- notes bersifat opsional dan harus singkat (satu kalimat).
+
+Hidangan majemuk (compound dish) - dish_name dan dish_type:
+- Bila foto menunjukkan hidangan Indonesia yang dikenal tersusun dari
+  beberapa komponen (misalnya pecel lele, nasi uduk, nasi goreng, mie ayam,
+  bakso, soto ayam, gado-gado, ketoprak, martabak telur, martabak manis):
+  isi "dish_name" dengan nama hidangan itu, set "dish_type" = "compound",
+  dan sebutkan SETIAP komponen yang benar-benar TERLIHAT sebagai entri
+  terpisah di "foods" (misalnya untuk pecel lele: lele goreng, sambal, kol,
+  timun, dan kemangi HANYA jika kemangi benar-benar terlihat pada foto -
+  jangan sertakan komponen yang biasanya ada pada hidangan itu tetapi tidak
+  terlihat di foto ini).
+- JANGAN PERNAH menambahkan bahan resep tersembunyi yang tidak mungkin
+  terlihat di foto (contoh: santan, minyak goreng, garam, jumlah butir
+  telur di dalam adonan, gram daging cincang di dalam martabak). Sistem ini
+  memperkirakan komponen yang TERLIHAT, bukan formulasi resep.
+- Bila foto menunjukkan "nasi padang" (nasi dengan pilihan lauk yang sangat
+  beragam): isi "dish_name" = "nasi padang", "dish_type" = "variable", dan
+  sebutkan SETIAP lauk yang benar-benar terlihat sebagai entri terpisah di
+  "foods" (misalnya nasi putih, rendang, sambal ijo, daun singkong) -
+  JANGAN membuat satu entri generik "nasi padang".
+- Bila foto menunjukkan martabak tetapi kamu TIDAK dapat memastikan apakah
+  itu martabak telur (gurih) atau martabak manis: isi "dish_name" =
+  "martabak", "dish_type" = "ambiguous", dan JANGAN menebak salah satu jenis.
+  Bila ada bukti visual yang jelas (misalnya terlihat isian telur/daging vs.
+  terlihat topping cokelat/keju manis), isi "dish_name" dengan jenis
+  spesifiknya ("martabak telur" atau "martabak manis") dan "dish_type" =
+  "compound".
+- Bila foto hanya menunjukkan makanan sederhana tanpa hidangan majemuk yang
+  dikenali, biarkan "dish_name" kosong dan "dish_type" = "simple"."""
+
+DISH_TYPE_SIMPLE = "simple"
+DISH_TYPE_COMPOUND = "compound"
+DISH_TYPE_VARIABLE = "variable"
+DISH_TYPE_AMBIGUOUS = "ambiguous"
+DISH_TYPES = (DISH_TYPE_SIMPLE, DISH_TYPE_COMPOUND, DISH_TYPE_VARIABLE, DISH_TYPE_AMBIGUOUS)
 
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
+        "dish_name": {"type": "string"},
+        "dish_type": {"type": "string", "enum": list(DISH_TYPES)},
         "foods": {
             "type": "array",
             "items": {
@@ -86,6 +126,16 @@ class DetectedFood:
 class FoodAnalysis:
     foods: list[DetectedFood]
     notes: str = ""
+    # Phase 3F: the model's own guess at an overarching dish name/type, e.g.
+    # dish_name="pecel lele", dish_type="compound". `foods` above already
+    # contains every visible component regardless of dish_type - these two
+    # fields are presentation hints only, and are NEVER trusted on their own
+    # for classification (see services/dish_decomposition.py, which
+    # re-derives the authoritative dish_type from services/dish_matcher.py
+    # instead of taking the model's dish_type at face value). Empty
+    # dish_name means "no recognized compound dish" - the common case.
+    dish_name: str = ""
+    dish_type: str = DISH_TYPE_SIMPLE
 
 
 _client: genai.Client | None = None
@@ -149,7 +199,17 @@ def _parse(text: str) -> FoodAnalysis:
     foods = [food for food in map(_coerce_food, raw_foods) if food is not None]
     notes = str(payload.get("notes") or "").strip()
 
-    return FoodAnalysis(foods=foods, notes=notes)
+    # dish_name/dish_type are read defensively: only these two whitelisted
+    # fields are ever pulled from the payload for this purpose, so a model
+    # response that (against its instructions) included nutrition-shaped
+    # keys anywhere has nothing to attach them to - DetectedFood and
+    # FoodAnalysis simply have no such fields to populate.
+    dish_name = str(payload.get("dish_name") or "").strip()
+    dish_type = str(payload.get("dish_type") or "").strip().lower()
+    if dish_type not in DISH_TYPES:
+        dish_type = DISH_TYPE_SIMPLE
+
+    return FoodAnalysis(foods=foods, notes=notes, dish_name=dish_name, dish_type=dish_type)
 
 
 async def analyze_food_image(image_bytes: bytes, mime_type: str = "image/jpeg") -> FoodAnalysis:

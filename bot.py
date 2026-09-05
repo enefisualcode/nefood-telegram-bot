@@ -19,7 +19,15 @@ from telegram.ext import (
 )
 
 import config
-from services.food_vision import FoodAnalysis, FoodVisionError, analyze_food_image
+from services.dish_decomposition import DecomposedMeal, decompose
+from services.dish_matcher import DishMatcher
+from services.dish_matcher import get_matcher as get_dish_matcher
+from services.food_vision import (
+    DISH_TYPE_AMBIGUOUS,
+    FoodAnalysis,
+    FoodVisionError,
+    analyze_food_image,
+)
 from services.nutrition_calculator import (
     SOURCE_USDA,
     UNMATCHED,
@@ -67,6 +75,8 @@ DOWNLOAD_FAILED_MESSAGE = (
 )
 
 PORTION_DISCLAIMER = "⚠️ Porsi hanya perkiraan dari foto."
+
+VISIBLE_COMPONENTS_LABEL = "Yang terlihat:"
 
 CONFIRM_CALLBACK = "portion:confirm"
 CORRECT_CALLBACK = "portion:correct"
@@ -133,8 +143,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(HELP_MESSAGE)
 
 
-def format_analysis(analysis: FoodAnalysis) -> str:
-    """Render the detection result as the Telegram reply text."""
+def _format_simple_analysis(analysis: FoodAnalysis) -> str:
+    """The original (pre-Phase-3F) detection layout - unchanged on purpose."""
     lines = ["🔍 Makanan terdeteksi:", ""]
 
     for food in analysis.foods:
@@ -154,6 +164,54 @@ def format_analysis(analysis: FoodAnalysis) -> str:
 
     lines.append(PORTION_DISCLAIMER)
     return "\n".join(lines)
+
+
+def _format_dish_analysis(analysis: FoodAnalysis, decomposed: DecomposedMeal) -> str:
+    """Compound/variable/ambiguous layout: dish header + only visible components.
+
+    Never renders a template component that isn't in `decomposed.foods` -
+    that list is always exactly what Gemini reported seeing.
+    """
+    lines = [f"🍽️ {decomposed.dish_name.capitalize()}", "", VISIBLE_COMPONENTS_LABEL]
+
+    for food in decomposed.foods:
+        portion = f"±{food.estimated_grams} g"
+        if food.serving_label:
+            portion += f" ({food.serving_label})"
+        lines.append(f"• {food.name.capitalize()} — {portion}")
+
+    lines.append("")
+
+    if decomposed.dish_type == DISH_TYPE_AMBIGUOUS:
+        lines.append(
+            f"❓ Jenis {decomposed.dish_name.lower()} belum dapat dipastikan dari foto ini "
+            "(perlu kejelasan lebih lanjut sebelum dihitung sebagai jenis tertentu)."
+        )
+        lines.append("")
+
+    if analysis.notes:
+        lines.append(f"📝 {analysis.notes}")
+        lines.append("")
+
+    lines.append(PORTION_DISCLAIMER)
+    return "\n".join(lines)
+
+
+def format_analysis(analysis: FoodAnalysis, dish_matcher: DishMatcher | None = None) -> str:
+    """Render the detection result as the Telegram reply text.
+
+    Simple detections (the common case, and everything before Phase 3F) are
+    rendered exactly as before. A recognized compound/variable/ambiguous
+    dish gets a dish-name header followed by only the components Gemini
+    actually reported seeing - see services/dish_decomposition.py.
+    """
+    dish_matcher = dish_matcher or get_dish_matcher()
+    decomposed = decompose(analysis, dish_matcher)
+
+    if decomposed.is_simple:
+        return _format_simple_analysis(analysis)
+
+    return _format_dish_analysis(analysis, decomposed)
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
