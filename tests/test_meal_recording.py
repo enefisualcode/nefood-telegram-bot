@@ -172,6 +172,8 @@ class MealFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.store.get_for_user(101), [])
         reply = request.message.reply_text.await_args.args[0]
         self.assertIn("Simpan catatan", reply)
+        self.assertIn("🍽 Ringkasan Makanan", reply)
+        self.assertIn("📊 Estimasi Nutrisi", reply)
 
     async def test_correction_changes_name_and_portion(self):
         request = text_update(101, "ayam goreng 100 gram")

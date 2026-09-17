@@ -61,8 +61,9 @@ class SimpleFoodUnchangedTest(unittest.TestCase):
     def test_format_analysis_simple_layout_is_compact(self):
         analysis = FoodAnalysis(foods=[detected("nasi putih", 100, serving_label="1 centong")])
         text = bot.format_analysis(analysis, dish_matcher=MATCHER)
-        self.assertIn("🔍 Makanan terdeteksi:", text)
-        self.assertIn("• Nasi putih — ±100 g (1 centong)", text)
+        self.assertIn("🍽 Makanan Terdeteksi", text)
+        self.assertIn("1. Nasi putih", text)
+        self.assertIn("1. Nasi putih — ±100 g (1 centong)", text)
         self.assertNotIn("Identifikasi:", text)
         self.assertNotIn("Estimasi porsi:", text)
         self.assertNotIn(bot.VISIBLE_COMPONENTS_LABEL, text)

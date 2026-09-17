@@ -163,7 +163,8 @@ class TodayCommandTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("180 /", reply)
         self.assertIn("Nasi putih", reply)
         self.assertIn("Asia/Jakarta", reply)
-        self.assertEqual(reply.count("💡 Saran hari ini:"), 1)
+        self.assertEqual(reply.count("💡 Saran Hari Ini"), 1)
+        self.assertIn("█", reply)
 
     async def test_command_labels_unknown_nutrition_instead_of_showing_zero(self):
         self.profiles.save(profile())
@@ -171,7 +172,8 @@ class TodayCommandTest(unittest.IsolatedAsyncioTestCase):
         request = self.update()
         await bot.today_command(request, SimpleNamespace(user_data={}))
         reply = request.message.reply_text.await_args.args[0]
-        self.assertIn("belum tersedia / target", reply)
+        self.assertIn("Data belum tersedia", reply)
+        self.assertNotIn("░ 0%", reply)
         self.assertIn("tidak dianggap nol", reply)
 
 

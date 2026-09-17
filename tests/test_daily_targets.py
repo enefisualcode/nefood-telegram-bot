@@ -132,7 +132,7 @@ class TargetCommandTest(unittest.IsolatedAsyncioTestCase):
         other = calculate_daily_targets(profile(telegram_user_id=2, weight_kg=110))
         self.assertIn(f"Protein: {expected.protein_g} g", reply)
         self.assertNotIn(f"Protein: {other.protein_g} g", reply)
-        self.assertIn("maksimal", reply)
+        self.assertIn("maks.", reply)
         self.assertIn("bukan diagnosis atau resep medis", reply)
 
     async def test_minor_gets_safe_explanation(self):
