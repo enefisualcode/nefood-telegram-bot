@@ -18,6 +18,13 @@ NEW_RECORDS = {
     "jeruk_manis": ("ER039", 45, 0.9, 11.2, 0.2, 1.4, 1),
     "pepaya_segar": ("ER073", 46, 0.5, 12.2, 0.1, 1.6, 4),
     "semangka_segar": ("ER115", 28, 0.5, 6.9, 0.2, 0.4, 7),
+    "bayam_segar": ("DR008", 16, 0.9, 2.9, 0.4, 0.7, None),
+    "buncis_segar": ("DR013", 34, 2.4, 6.6, 0.3, 3.4, None),
+    "tauge_segar": ("DR148", 34, 1.7, 6.4, 0.2, 1.1, None),
+    "tomat_merah_segar": ("DR161", 24, 1.1, 4.7, 0.5, 1.5, None),
+    "ubi_jalar_kuning_segar": ("BR028", 119, 0.5, 25.1, 0.4, 4.2, None),
+    "mangga_segar": ("ER054", 52, 0.7, 12.3, 0.0, 1.8, 3),
+    "melon_segar": ("ER067", 37, 0.6, 7.4, 0.4, 1.0, None),
 }
 
 
@@ -106,9 +113,28 @@ class Batch2DatabaseTest(unittest.TestCase):
 
     def test_database_grew_without_duplicates(self):
         ids = [record.id for record in self.matcher.records]
-        self.assertEqual(len(ids), 20)
+        self.assertEqual(len(ids), 27)
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(sum(record.is_verified for record in self.matcher.records), 14)
+        self.assertEqual(sum(record.is_verified for record in self.matcher.records), 21)
+
+    def test_new_aliases_resolve_without_preparation_confusion(self):
+        expected = {
+            "bayam segar": "bayam_segar",
+            "buncis segar": "buncis_segar",
+            "tauge segar": "tauge_segar",
+            "tomat merah segar": "tomat_merah_segar",
+            "ubi jalar kuning": "ubi_jalar_kuning_segar",
+            "mangga": "mangga_segar",
+            "melon": "melon_segar",
+        }
+        for alias, food_id in expected.items():
+            with self.subTest(alias=alias):
+                self.assertEqual(self.matcher.match(alias).id, food_id)
+
+    def test_plain_cooked_ambiguous_names_are_not_silently_promoted(self):
+        for name in ("bayam", "buncis", "tauge", "tomat", "ubi"):
+            with self.subTest(name=name):
+                self.assertIsNone(self.matcher.match(name))
 
 
 class Batch2CalculationTest(unittest.TestCase):
