@@ -38,6 +38,9 @@ ENERGY_KCAL_NUMBER = ENERGY_KCAL_NUMBERS[0]
 PROTEIN_NUMBER = "203"
 CARB_NUMBER = "205"
 FAT_NUMBER = "204"
+FIBER_NUMBER = "291"
+ADDED_SUGAR_NUMBER = "539"
+SODIUM_NUMBER = "307"
 
 
 @dataclass(frozen=True)
@@ -115,6 +118,9 @@ class UsdaFood:
     protein_per_100g: float
     carbs_per_100g: float
     fat_per_100g: float
+    fiber_per_100g: float | None = None
+    added_sugar_per_100g: float | None = None
+    sodium_mg_per_100g: float | None = None
     query: str = ""
     # Which FDC nutrient number the kcal figure came from (208 / 957 / 958).
     energy_nutrient_number: str = ""
@@ -216,6 +222,9 @@ def to_usda_food(payload: dict, query: str = "") -> UsdaFood:
         query=query,
         energy_nutrient_number=energy_number,
         retrieved_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        fiber_per_100g=_pick(amounts, FIBER_NUMBER),
+        added_sugar_per_100g=_pick(amounts, ADDED_SUGAR_NUMBER),
+        sodium_mg_per_100g=_pick(amounts, SODIUM_NUMBER),
         **values,
     )
 

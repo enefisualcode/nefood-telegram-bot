@@ -5,6 +5,7 @@ Keeps all environment-based settings in one place so later phases
 """
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -20,6 +21,10 @@ USDA_BASE_URL = os.getenv("USDA_BASE_URL", "https://api.nal.usda.gov/fdc/v1").st
 USDA_TIMEOUT_SECONDS = float(os.getenv("USDA_TIMEOUT_SECONDS", "10"))
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+PROFILE_DB_PATH = Path(
+    os.getenv("PROFILE_DB_PATH", "data/nutrufood.db").strip()
+)
 
 
 class ConfigError(RuntimeError):

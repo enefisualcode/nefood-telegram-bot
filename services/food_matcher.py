@@ -55,6 +55,9 @@ class FoodRecord:
     protein_per_100g: float
     carbs_per_100g: float
     fat_per_100g: float
+    fiber_per_100g: float | None = None
+    added_sugar_per_100g: float | None = None
+    sodium_mg_per_100g: float | None = None
     source: str = ""
     source_reference: str = ""
     # Anything not explicitly verified is untrusted, so this defaults to
@@ -162,6 +165,21 @@ def _load_records(path: Path) -> list[FoodRecord]:
                     protein_per_100g=float(raw["protein_per_100g"]),
                     carbs_per_100g=float(raw["carbs_per_100g"]),
                     fat_per_100g=float(raw["fat_per_100g"]),
+                    fiber_per_100g=(
+                        float(raw["fiber_per_100g"])
+                        if raw.get("fiber_per_100g") is not None
+                        else None
+                    ),
+                    added_sugar_per_100g=(
+                        float(raw["added_sugar_per_100g"])
+                        if raw.get("added_sugar_per_100g") is not None
+                        else None
+                    ),
+                    sodium_mg_per_100g=(
+                        float(raw["sodium_mg_per_100g"])
+                        if raw.get("sodium_mg_per_100g") is not None
+                        else None
+                    ),
                     source=raw.get("source", ""),
                     source_reference=raw.get("source_reference", ""),
                     source_food_code=str(raw.get("source_food_code", "")),

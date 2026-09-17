@@ -227,6 +227,13 @@ config.py                 Environment configuration
 services/food_vision.py          Gemini image analysis (no Telegram code)
 services/food_matcher.py         Name -> food record lookup
 services/nutrition_calculator.py Deterministic per-100 g scaling
+services/daily_targets.py        Personal daily energy and nutrition targets
+services/daily_recap.py          Asia/Jakarta daily meal aggregation
+services/nutrition_warnings.py   Deterministic daily warning rules
+services/nutrition_advice.py     One prioritized rule-based daily suggestion
+services/meal_input.py           Strict text meal and correction parser
+services/meal_store.py           Persistent confirmed meal storage
+services/profile_store.py        Persistent SQLite user profiles
 services/usda_food_data.py       USDA FoodData Central fallback
 services/dish_matcher.py         Compound-dish decomposition hints (Phase 3E, not wired in)
 data/foods.json                  Curated nutrition database (sourced values only)
@@ -250,6 +257,12 @@ requirements.txt          Dependencies
 |----------|----------------------------|
 | `/start` | Welcome message            |
 | `/help`  | List of available commands |
+| `/profil` | View your saved profile, or start setup if none exists |
+| `/setup` | Create or update your profile |
+| `/target` | View personal daily calorie and nutrition targets |
+| `/catat` | Start a meal entry using text |
+| `/hariini` | View today's saved meals and nutrition totals against your targets |
+| `/batal` | Cancel profile setup without replacing the saved profile |
 
 ## Configuration
 
@@ -261,6 +274,18 @@ requirements.txt          Dependencies
 | `USDA_API_KEY`       | no       | — (fallback off)    |
 | `USDA_TIMEOUT_SECONDS` | no     | `10`                |
 | `LOG_LEVEL`          | no       | `INFO`              |
+| `PROFILE_DB_PATH`    | no       | `data/nutrufood.db` |
+
+Daily warnings are rule-based and limited to three. Near-limit warnings start
+at 80% for sodium and added sugar; over-target warnings use 100%. Low calorie,
+protein, and fibre warnings appear only from 18:00 Asia/Jakarta and only when
+the required nutrient data is complete. Missing values never count as zero.
+
+`/hariini` also shows exactly one rule-based suggestion. Its priority is
+sodium, added sugar, excess calories, low fibre, low protein, excess fat, then
+low late-day calories. When nothing significant is detected it shows a short
+positive message; when no usable nutrient value exists it says the data is
+insufficient instead of guessing.
 
 ## Troubleshooting
 

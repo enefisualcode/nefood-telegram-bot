@@ -5,14 +5,21 @@ is intentionally left for a later phase.
 """
 
 import logging
+from datetime import datetime, timezone
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardRemove,
+    Update,
+)
 from telegram.constants import ChatAction
 from telegram.error import TelegramError
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
     CommandHandler,
+    ConversationHandler,
     ContextTypes,
     MessageHandler,
     filters,
@@ -29,6 +36,9 @@ from services.food_vision import (
     analyze_food_image,
 )
 from services.image_processing import preprocess_image
+from services.daily_recap import JAKARTA, build_daily_recap
+from services.meal_input import MealInputError, parse_meal_text
+from services.meal_store import get_meal_store
 from services.nutrition_calculator import (
     SOURCE_USDA,
     UNMATCHED,
@@ -36,7 +46,11 @@ from services.nutrition_calculator import (
     MealNutrition,
     calculate_meal,
 )
+from services.nutrition_advice import choose_daily_advice
+from services.nutrition_warnings import build_nutrition_warnings
 from services.perf import StageTimer, get_tracker
+from services.daily_targets import TargetCalculationError, calculate_daily_targets
+from services.profile_store import UserProfile, get_profile_store
 from services.usda_food_data import get_client as get_usda_client
 from services.vision_cache import get_cache as get_vision_cache
 
@@ -59,8 +73,41 @@ HELP_MESSAGE = (
     "📖 Perintah yang tersedia:\n\n"
     "/start - Mulai menggunakan bot\n"
     "/help - Tampilkan pesan bantuan ini\n\n"
+    "/profil - Lihat profil pribadi\n"
+    "/setup - Isi atau perbarui profil\n"
+    "/target - Lihat target kalori dan nutrisi harian\n"
+    "/hariini - Lihat rekap konsumsi hari ini\n"
+    "/catat - Catat makanan melalui teks\n"
+    "/batal - Batalkan pengisian profil\n\n"
     "Kirim foto makanan untuk dideteksi."
 )
+
+PROFILE_DRAFT_KEY = "profile_draft"
+(
+    PROFILE_AGE,
+    PROFILE_GENDER,
+    PROFILE_HEIGHT,
+    PROFILE_WEIGHT,
+    PROFILE_ACTIVITY,
+    PROFILE_GOAL,
+    PROFILE_CONFIRM,
+) = range(7)
+
+GENDER_OPTIONS = ("Laki-laki", "Perempuan")
+ACTIVITY_OPTIONS = (
+    "Sangat ringan",
+    "Ringan",
+    "Sedang",
+    "Aktif",
+    "Sangat aktif",
+)
+GOAL_OPTIONS = (
+    "Menurunkan berat badan",
+    "Mempertahankan berat badan",
+    "Menaikkan berat badan",
+)
+
+PROFILE_CALLBACK_PREFIX = "profile_choice"
 
 ANALYZING_MESSAGE = "🔍 Sedang menganalisis makanan..."
 ANALYZING_DETAIL_MESSAGE = "Mengenali jenis makanan dan memperkirakan porsinya."
@@ -86,11 +133,17 @@ VISIBLE_COMPONENTS_LABEL = "Yang terlihat:"
 
 CONFIRM_CALLBACK = "portion:confirm"
 CORRECT_CALLBACK = "portion:correct"
+MEAL_SAVE_CALLBACK = "meal:save"
+MEAL_CORRECT_CALLBACK = "meal:correct"
+MEAL_CANCEL_CALLBACK = "meal:cancel"
 
 CONFIRMED_MESSAGE = "✅ Porsi dikonfirmasi."
 
 # Key under which the latest detection is kept in Telegram's in-memory user_data.
 LAST_ANALYSIS_KEY = "last_analysis"
+MEAL_NUTRITION_KEY = "meal_nutrition"
+MEAL_INPUT_SOURCE_KEY = "meal_input_source"
+MEAL_AWAITING_CORRECTION_KEY = "meal_awaiting_correction"
 
 NO_ANALYSIS_MESSAGE = (
     "🤔 Data makanan tidak ditemukan lagi. Silakan kirim ulang foto makanannya."
@@ -106,7 +159,11 @@ NO_NUTRITION_DATA_MESSAGE = (
     "jadi total tidak dapat dihitung."
 )
 
-CORRECTION_MESSAGE = "✏️ Fitur koreksi porsi akan dibuat pada langkah berikutnya."
+CORRECTION_MESSAGE = (
+    "✏️ Kirim daftar makanan yang benar beserta beratnya.\n\n"
+    "Contoh:\nayam goreng 100 gram\nnasi putih 150 gram\n\n"
+    "Pisahkan beberapa makanan dengan baris baru atau tanda titik koma."
+)
 
 NUTRITION_FAILED_MESSAGE = (
     "⚠️ Maaf, perhitungan nutrisi gagal saat ini. Silakan coba lagi."
@@ -149,8 +206,491 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(HELP_MESSAGE)
 
 
+def _inline_choice_keyboard(group: str, options: tuple[str, ...]) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    option,
+                    callback_data=f"{PROFILE_CALLBACK_PREFIX}:{group}:{index}",
+                )
+            ]
+            for index, option in enumerate(options)
+        ]
+    )
+
+
+def meal_review_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("✅ Simpan", callback_data=MEAL_SAVE_CALLBACK)],
+            [InlineKeyboardButton("✏️ Koreksi", callback_data=MEAL_CORRECT_CALLBACK)],
+            [InlineKeyboardButton("❌ Batal", callback_data=MEAL_CANCEL_CALLBACK)],
+        ]
+    )
+
+
+def _profile_text(profile: UserProfile) -> str:
+    height = f"{profile.height_cm:g}"
+    weight = f"{profile.weight_kg:g}"
+    return "\n".join(
+        [
+            "👤 Profil NutruFood",
+            "",
+            f"Umur: {profile.age} tahun",
+            f"Jenis kelamin: {profile.gender}",
+            f"Tinggi badan: {height} cm",
+            f"Berat badan: {weight} kg",
+            f"Aktivitas: {profile.activity_level}",
+            f"Tujuan: {profile.goal}",
+        ]
+    )
+
+
+def _draft_profile(user_id: int, draft: dict) -> UserProfile:
+    return UserProfile(telegram_user_id=user_id, **draft)
+
+
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    profile = get_profile_store().get(user.id)
+    if profile is not None:
+        await update.message.reply_text(
+            _profile_text(profile) + "\n\nGunakan /setup untuk memperbarui profil."
+        )
+        return ConversationHandler.END
+
+    await update.message.reply_text(
+        "Profil Anda belum tersedia. Mari isi sekarang.\n\nBerapa umur Anda? "
+        "Masukkan angka dalam tahun (13–120)."
+    )
+    context.user_data[PROFILE_DRAFT_KEY] = {}
+    return PROFILE_AGE
+
+
+async def setup_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data[PROFILE_DRAFT_KEY] = {}
+    await update.message.reply_text(
+        "Mari isi profil NutruFood Anda. Profil lama baru akan diganti setelah "
+        "Anda mengonfirmasi semua data.\n\nBerapa umur Anda? "
+        "Masukkan angka dalam tahun (13–120).",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    return PROFILE_AGE
+
+
+async def receive_age(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    try:
+        value = int(update.message.text.strip())
+    except (AttributeError, ValueError):
+        value = 0
+    if not 13 <= value <= 120:
+        await update.message.reply_text("Umur belum valid. Masukkan angka 13–120.")
+        return PROFILE_AGE
+    context.user_data[PROFILE_DRAFT_KEY]["age"] = value
+    await update.message.reply_text(
+        "Pilih jenis kelamin:",
+        reply_markup=_inline_choice_keyboard("gender", GENDER_OPTIONS),
+    )
+    return PROFILE_GENDER
+
+
+async def receive_gender(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    raw_value = update.message.text.strip().lower()
+    gender_aliases = {
+        "pria": "Laki-laki",
+        "laki laki": "Laki-laki",
+        "laki-laki": "Laki-laki",
+        "wanita": "Perempuan",
+        "perempuan": "Perempuan",
+    }
+    value = gender_aliases.get(raw_value, update.message.text.strip().capitalize())
+    if value not in GENDER_OPTIONS:
+        await update.message.reply_text(
+            "Silakan pilih Laki-laki atau Perempuan melalui tombol di bawah.",
+            reply_markup=_inline_choice_keyboard("gender", GENDER_OPTIONS),
+        )
+        return PROFILE_GENDER
+    context.user_data[PROFILE_DRAFT_KEY]["gender"] = value
+    await update.message.reply_text(
+        "Berapa tinggi badan Anda dalam sentimeter? Contoh: 170",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    return PROFILE_HEIGHT
+
+
+def _parse_decimal(text: str) -> float | None:
+    try:
+        return float(text.strip().replace(",", "."))
+    except (AttributeError, ValueError):
+        return None
+
+
+async def receive_height(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    value = _parse_decimal(update.message.text)
+    if value is None or not 50 <= value <= 250:
+        await update.message.reply_text("Tinggi belum valid. Masukkan angka 50–250 cm.")
+        return PROFILE_HEIGHT
+    context.user_data[PROFILE_DRAFT_KEY]["height_cm"] = value
+    await update.message.reply_text("Berapa berat badan Anda dalam kilogram? Contoh: 65,5")
+    return PROFILE_WEIGHT
+
+
+async def receive_weight(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    value = _parse_decimal(update.message.text)
+    if value is None or not 20 <= value <= 500:
+        await update.message.reply_text("Berat belum valid. Masukkan angka 20–500 kg.")
+        return PROFILE_WEIGHT
+    context.user_data[PROFILE_DRAFT_KEY]["weight_kg"] = value
+    await update.message.reply_text(
+        "Pilih tingkat aktivitas Anda:\n\n"
+        "Sangat ringan: hampir tidak berolahraga\n"
+        "Ringan: olahraga ringan 1–3 hari/minggu\n"
+        "Sedang: olahraga 3–5 hari/minggu\n"
+        "Aktif: olahraga berat 6–7 hari/minggu\n"
+        "Sangat aktif: aktivitas fisik sangat berat",
+        reply_markup=_inline_choice_keyboard("activity", ACTIVITY_OPTIONS),
+    )
+    return PROFILE_ACTIVITY
+
+
+async def receive_activity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    value = update.message.text.strip().capitalize()
+    if value not in ACTIVITY_OPTIONS:
+        await update.message.reply_text(
+            "Silakan pilih salah satu tingkat aktivitas yang tersedia.",
+            reply_markup=_inline_choice_keyboard("activity", ACTIVITY_OPTIONS),
+        )
+        return PROFILE_ACTIVITY
+    context.user_data[PROFILE_DRAFT_KEY]["activity_level"] = value
+    await update.message.reply_text(
+        "Apa tujuan Anda?", reply_markup=_inline_choice_keyboard("goal", GOAL_OPTIONS)
+    )
+    return PROFILE_GOAL
+
+
+async def receive_goal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    value = update.message.text.strip().capitalize()
+    if value not in GOAL_OPTIONS:
+        await update.message.reply_text(
+            "Silakan pilih salah satu tujuan yang tersedia.",
+            reply_markup=_choice_keyboard(GOAL_OPTIONS),
+        )
+        return PROFILE_GOAL
+    context.user_data[PROFILE_DRAFT_KEY]["goal"] = value
+    profile = _draft_profile(update.effective_user.id, context.user_data[PROFILE_DRAFT_KEY])
+    await update.message.reply_text(
+        _profile_text(profile) + "\n\nApakah data ini sudah benar?",
+        reply_markup=_inline_choice_keyboard("confirm", ("Ya, simpan", "Tidak, batalkan")),
+    )
+    return PROFILE_CONFIRM
+
+
+async def confirm_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    answer = update.message.text.strip().lower()
+    if answer == "ya, simpan":
+        draft = context.user_data.get(PROFILE_DRAFT_KEY)
+        if not draft:
+            await update.message.reply_text(
+                "Data pengisian tidak ditemukan. Silakan mulai lagi dengan /setup.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return ConversationHandler.END
+        profile = _draft_profile(update.effective_user.id, draft)
+        get_profile_store().save(profile)
+        context.user_data.pop(PROFILE_DRAFT_KEY, None)
+        await update.message.reply_text(
+            "✅ Profil berhasil disimpan secara permanen. Gunakan /profil untuk melihatnya.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return ConversationHandler.END
+    if answer == "tidak, batalkan":
+        return await cancel_profile(update, context)
+    await update.message.reply_text(
+        "Pilih “Ya, simpan” atau “Tidak, batalkan”.",
+        reply_markup=_inline_choice_keyboard("confirm", ("Ya, simpan", "Tidak, batalkan")),
+    )
+    return PROFILE_CONFIRM
+
+
+async def cancel_profile(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data.pop(PROFILE_DRAFT_KEY, None)
+    await update.message.reply_text(
+        "Pengisian profil dibatalkan. Profil lama, jika ada, tidak berubah.",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+    return ConversationHandler.END
+
+
+def _profile_callback_value(data: str, group: str, options: tuple[str, ...]) -> str | None:
+    prefix = f"{PROFILE_CALLBACK_PREFIX}:{group}:"
+    if not data.startswith(prefix):
+        return None
+    try:
+        return options[int(data.removeprefix(prefix))]
+    except (ValueError, IndexError):
+        return None
+
+
+async def choose_gender(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    value = _profile_callback_value(query.data, "gender", GENDER_OPTIONS)
+    if value is None:
+        await query.message.reply_text("Pilihan tidak dikenali. Silakan pilih kembali.")
+        return PROFILE_GENDER
+    context.user_data[PROFILE_DRAFT_KEY]["gender"] = value
+    await query.edit_message_reply_markup(reply_markup=None)
+    await query.message.reply_text("Berapa tinggi badan Anda dalam sentimeter? Contoh: 170")
+    return PROFILE_HEIGHT
+
+
+async def choose_activity(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    value = _profile_callback_value(query.data, "activity", ACTIVITY_OPTIONS)
+    if value is None:
+        await query.message.reply_text("Pilihan tidak dikenali. Silakan pilih kembali.")
+        return PROFILE_ACTIVITY
+    context.user_data[PROFILE_DRAFT_KEY]["activity_level"] = value
+    await query.edit_message_reply_markup(reply_markup=None)
+    await query.message.reply_text(
+        "Apa tujuan Anda?", reply_markup=_inline_choice_keyboard("goal", GOAL_OPTIONS)
+    )
+    return PROFILE_GOAL
+
+
+async def choose_goal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    value = _profile_callback_value(query.data, "goal", GOAL_OPTIONS)
+    if value is None:
+        await query.message.reply_text("Pilihan tidak dikenali. Silakan pilih kembali.")
+        return PROFILE_GOAL
+    context.user_data[PROFILE_DRAFT_KEY]["goal"] = value
+    await query.edit_message_reply_markup(reply_markup=None)
+    profile = _draft_profile(update.effective_user.id, context.user_data[PROFILE_DRAFT_KEY])
+    await query.message.reply_text(
+        _profile_text(profile) + "\n\nApakah data ini sudah benar?",
+        reply_markup=_inline_choice_keyboard("confirm", ("Ya, simpan", "Tidak, batalkan")),
+    )
+    return PROFILE_CONFIRM
+
+
+async def choose_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    value = _profile_callback_value(
+        query.data, "confirm", ("Ya, simpan", "Tidak, batalkan")
+    )
+    if value is None:
+        await query.message.reply_text("Pilihan tidak dikenali. Silakan pilih kembali.")
+        return PROFILE_CONFIRM
+    await query.edit_message_reply_markup(reply_markup=None)
+    if value == "Tidak, batalkan":
+        context.user_data.pop(PROFILE_DRAFT_KEY, None)
+        await query.message.reply_text(
+            "Pengisian profil dibatalkan. Profil lama, jika ada, tidak berubah."
+        )
+        return ConversationHandler.END
+    draft = context.user_data.get(PROFILE_DRAFT_KEY)
+    if not draft:
+        await query.message.reply_text(
+            "Data pengisian tidak ditemukan. Silakan mulai lagi dengan /setup."
+        )
+        return ConversationHandler.END
+    get_profile_store().save(_draft_profile(update.effective_user.id, draft))
+    context.user_data.pop(PROFILE_DRAFT_KEY, None)
+    await query.message.reply_text(
+        "✅ Profil berhasil disimpan secara permanen. Gunakan /profil untuk melihatnya."
+    )
+    return ConversationHandler.END
+
+
+async def target_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    profile = get_profile_store().get(user.id)
+    if profile is None:
+        await update.message.reply_text(
+            "Profil Anda belum tersedia. Gunakan /setup terlebih dahulu agar target dapat dihitung."
+        )
+        return
+
+    try:
+        target = calculate_daily_targets(profile)
+    except TargetCalculationError as exc:
+        await update.message.reply_text(
+            f"Target belum dapat dihitung: {exc}\n\n"
+            "Perbarui profil dengan /setup atau konsultasikan kebutuhan khusus dengan tenaga kesehatan."
+        )
+        return
+
+    await update.message.reply_text(
+        "\n".join(
+            [
+                "🎯 Target Harian Anda",
+                "",
+                f"🔥 Kalori: {target.calories_kcal:,} kcal".replace(",", "."),
+                f"🥩 Protein: {target.protein_g} g",
+                f"🍚 Karbohidrat: {target.carbs_g} g",
+                f"🥑 Lemak: {target.fat_g} g",
+                f"🥬 Serat: {target.fiber_g} g",
+                "",
+                "Batas harian:",
+                f"🍬 Gula tambahan/bebas: maksimal {target.added_sugar_max_g} g",
+                f"🧂 Sodium: maksimal {target.sodium_max_mg:,} mg".replace(",", "."),
+                "",
+                "Tujuan:",
+                target.goal,
+                "",
+                "ℹ️ Angka ini merupakan estimasi umum berdasarkan profil Anda, "
+                "bukan diagnosis atau resep medis.",
+            ]
+        )
+    )
+
+
+def _recap_value(value: float | None, target: int, unit: str) -> str:
+    if value is None:
+        return f"belum tersedia / target {target:,} {unit}".replace(",", ".")
+    consumed = f"{value:.0f}"
+    return f"{consumed} / {target:,} {unit}".replace(",", ".")
+
+
+async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    profile = get_profile_store().get(user.id)
+    if profile is None:
+        await update.message.reply_text(
+            "Profil Anda belum tersedia. Gunakan /setup terlebih dahulu untuk melihat rekap personal."
+        )
+        return
+    try:
+        target = calculate_daily_targets(profile)
+    except TargetCalculationError as exc:
+        await update.message.reply_text(
+            f"Rekap belum dapat dibandingkan dengan target: {exc}\n\n"
+            "Perbarui profil melalui /setup."
+        )
+        return
+
+    recap = build_daily_recap(user.id, get_meal_store())
+    if not recap.entries:
+        await update.message.reply_text(
+            "📊 Belum ada makanan yang disimpan hari ini.\n\n"
+            "Kirim foto makanan atau gunakan /catat untuk mulai mencatat."
+        )
+        return
+
+    lines = [
+        "📊 Rekap Hari Ini",
+        "",
+        f"🔥 Kalori: {_recap_value(recap.calories, target.calories_kcal, 'kcal')}",
+        f"🥩 Protein: {_recap_value(recap.protein, target.protein_g, 'g')}",
+        f"🍚 Karbohidrat: {_recap_value(recap.carbs, target.carbs_g, 'g')}",
+        f"🥑 Lemak: {_recap_value(recap.fat, target.fat_g, 'g')}",
+    ]
+    if recap.fiber is not None:
+        lines.append(f"🥬 Serat: {_recap_value(recap.fiber, target.fiber_g, 'g')}")
+    if recap.added_sugar is not None:
+        lines.append(
+            f"🍬 Gula tambahan: "
+            f"{_recap_value(recap.added_sugar, target.added_sugar_max_g, 'batas g')}"
+        )
+    if recap.sodium is not None:
+        lines.append(
+            f"🧂 Sodium: {_recap_value(recap.sodium, target.sodium_max_mg, 'batas mg')}"
+        )
+
+    now_local = datetime.now(timezone.utc).astimezone(JAKARTA)
+    warnings = build_nutrition_warnings(recap, target, now_local)
+    if warnings:
+        lines.extend(["", "⚠️ Perhatian:", ""])
+        lines.extend(f"• {warning.message}" for warning in warnings)
+    if recap.has_partial_nutrition:
+        lines.extend(
+            [
+                "",
+                f"⚠️ Total nutrisi hanya mencakup {recap.known_nutrition_items} dari "
+                f"{recap.total_items} makanan. Makanan tanpa data tidak dianggap nol.",
+            ]
+        )
+    elif recap.known_nutrition_items == 0:
+        lines.extend(
+            [
+                "",
+                "⚠️ Nutrisi makanan hari ini belum tersedia; makanan tetap tercatat dan tidak dianggap nol.",
+            ]
+        )
+
+    lines.extend(["", "🍽 Makanan hari ini:", ""])
+    for entry in recap.entries:
+        suffix = "" if entry.nutrition_available else " — nutrisi belum tersedia"
+        lines.append(
+            f"• {entry.eaten_at_local:%H:%M}  {entry.name.capitalize()} "
+            f"{entry.grams} g{suffix}"
+        )
+    advice = choose_daily_advice(recap, target, now_local)
+    lines.extend(["", "💡 Saran hari ini:", advice.message])
+    lines.extend(["", "Zona waktu: Asia/Jakarta"])
+    await update.message.reply_text("\n".join(lines))
+
+
+async def record_meal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data[MEAL_AWAITING_CORRECTION_KEY] = True
+    context.user_data[MEAL_INPUT_SOURCE_KEY] = "text"
+    await update.message.reply_text(
+        "🍽️ Kirim makanan dan porsinya.\n\n"
+        "Contoh:\nnasi putih 150 gram\n2 telur rebus\n\n"
+        "Untuk beberapa makanan, pisahkan dengan baris baru atau tanda titik koma."
+    )
+
+
+async def cancel_meal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    had_draft = any(
+        key in context.user_data
+        for key in (LAST_ANALYSIS_KEY, MEAL_NUTRITION_KEY, MEAL_AWAITING_CORRECTION_KEY)
+    )
+    _clear_meal_draft(context)
+    message = (
+        "❌ Pencatatan makanan dibatalkan."
+        if had_draft
+        else "Tidak ada pencatatan makanan yang sedang berlangsung."
+    )
+    await update.message.reply_text(message)
+
+
+def profile_conversation() -> ConversationHandler:
+    text = filters.TEXT & ~filters.COMMAND
+    return ConversationHandler(
+        entry_points=[CommandHandler("profil", profile_command), CommandHandler("setup", setup_profile)],
+        states={
+            PROFILE_AGE: [MessageHandler(text, receive_age)],
+            PROFILE_GENDER: [
+                CallbackQueryHandler(choose_gender, pattern=f"^{PROFILE_CALLBACK_PREFIX}:gender:"),
+                MessageHandler(text, receive_gender),
+            ],
+            PROFILE_HEIGHT: [MessageHandler(text, receive_height)],
+            PROFILE_WEIGHT: [MessageHandler(text, receive_weight)],
+            PROFILE_ACTIVITY: [
+                CallbackQueryHandler(choose_activity, pattern=f"^{PROFILE_CALLBACK_PREFIX}:activity:"),
+                MessageHandler(text, receive_activity),
+            ],
+            PROFILE_GOAL: [
+                CallbackQueryHandler(choose_goal, pattern=f"^{PROFILE_CALLBACK_PREFIX}:goal:"),
+                MessageHandler(text, receive_goal),
+            ],
+            PROFILE_CONFIRM: [
+                CallbackQueryHandler(choose_confirmation, pattern=f"^{PROFILE_CALLBACK_PREFIX}:confirm:"),
+                MessageHandler(text, confirm_profile),
+            ],
+        },
+        fallbacks=[CommandHandler("batal", cancel_profile), CommandHandler("setup", setup_profile)],
+    )
+
+
 def _format_simple_analysis(analysis: FoodAnalysis) -> str:
-    """The original (pre-Phase-3F) detection layout - unchanged on purpose."""
+    """Compact detection list; confidence remains internal for diagnostics."""
     lines = ["🔍 Makanan terdeteksi:", ""]
 
     for food in analysis.foods:
@@ -158,16 +698,13 @@ def _format_simple_analysis(analysis: FoodAnalysis) -> str:
         if food.serving_label:
             portion += f" ({food.serving_label})"
 
-        lines.append(f"🍽 {food.name.capitalize()}")
-        lines.append(f"Porsi: {portion}")
-        lines.append(f"Identifikasi: {confidence_label(food.identification_confidence)}")
-        lines.append(f"Estimasi porsi: {confidence_label(food.portion_confidence)}")
-        lines.append("")
+        lines.append(f"• {food.name.capitalize()} — {portion}")
 
     if analysis.notes:
-        lines.append(f"📝 {analysis.notes}")
         lines.append("")
+        lines.append(f"📝 {analysis.notes}")
 
+    lines.append("")
     lines.append(PORTION_DISCLAIMER)
     return "\n".join(lines)
 
@@ -290,6 +827,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         result_text = format_analysis(analysis)
 
     context.user_data[LAST_ANALYSIS_KEY] = analysis
+    context.user_data[MEAL_INPUT_SOURCE_KEY] = "photo"
+    context.user_data.pop(MEAL_NUTRITION_KEY, None)
+    context.user_data.pop(MEAL_AWAITING_CORRECTION_KEY, None)
     await progress_message.edit_text(result_text, reply_markup=result_keyboard())
 
     # Only a fully successful analysis feeds the duration estimate - a
@@ -354,6 +894,78 @@ def format_nutrition(meal: MealNutrition) -> str:
     return "\n".join(lines)
 
 
+def format_meal_review(meal: MealNutrition) -> str:
+    """Show the final food list and only nutrition values we can verify."""
+    lines = ["🍽 Makanan:", ""]
+    for item in meal.items:
+        lines.append(f"• {item.name.capitalize()} — {item.estimated_gross_grams} g")
+        if item.status == UNMATCHED:
+            lines.append("  Nutrisi: belum tersedia")
+        elif item.status == UNVERIFIED:
+            lines.append("  Nutrisi: belum terverifikasi (tidak dihitung)")
+
+    lines.extend(["", "Estimasi nutrisi:"])
+    if meal.counted_items:
+        total = meal.total.rounded()
+        lines.extend(
+            [
+                f"🔥 Kalori: {total.calories:.0f} kcal",
+                f"🥩 Protein: {total.protein:.1f} g",
+                f"🍚 Karbohidrat: {total.carbs:.1f} g",
+                f"🥑 Lemak: {total.fat:.1f} g",
+            ]
+        )
+    else:
+        lines.append("⚠️ Belum ada data nutrisi terverifikasi untuk dihitung.")
+    lines.extend(["", "Simpan catatan makan ini?"])
+    return "\n".join(lines)
+
+
+async def _calculate_and_show_review(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    analysis: FoodAnalysis,
+) -> None:
+    try:
+        meal = await calculate_meal(analysis.foods, usda=get_usda_client())
+    except Exception:
+        logger.exception("Nutrition calculation failed while preparing meal review")
+        await update.effective_message.reply_text(NUTRITION_FAILED_MESSAGE)
+        return
+    context.user_data[LAST_ANALYSIS_KEY] = analysis
+    context.user_data[MEAL_NUTRITION_KEY] = meal
+    context.user_data.pop(MEAL_AWAITING_CORRECTION_KEY, None)
+    await update.effective_message.reply_text(
+        format_meal_review(meal), reply_markup=meal_review_keyboard()
+    )
+
+
+async def handle_meal_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    is_correction = bool(context.user_data.get(MEAL_AWAITING_CORRECTION_KEY))
+    try:
+        foods = parse_meal_text(update.message.text or "")
+    except MealInputError as exc:
+        await update.message.reply_text(
+            f"⚠️ {exc}\n\n"
+            "Gunakan format seperti: nasi putih 150 gram. Ketik /batal untuk membatalkan."
+        )
+        return
+
+    if not is_correction:
+        context.user_data[MEAL_INPUT_SOURCE_KEY] = "text"
+    await _calculate_and_show_review(update, context, FoodAnalysis(foods=foods))
+
+
+def _clear_meal_draft(context: ContextTypes.DEFAULT_TYPE) -> None:
+    for key in (
+        LAST_ANALYSIS_KEY,
+        MEAL_NUTRITION_KEY,
+        MEAL_INPUT_SOURCE_KEY,
+        MEAL_AWAITING_CORRECTION_KEY,
+    ):
+        context.user_data.pop(key, None)
+
+
 async def handle_portion_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -368,6 +980,10 @@ async def handle_portion_callback(
     )
 
     if query.data != CONFIRM_CALLBACK:
+        if context.user_data.get(LAST_ANALYSIS_KEY) is None:
+            await query.message.reply_text(NO_ANALYSIS_MESSAGE)
+            return
+        context.user_data[MEAL_AWAITING_CORRECTION_KEY] = True
         await query.message.reply_text(CORRECTION_MESSAGE)
         return
 
@@ -376,8 +992,6 @@ async def handle_portion_callback(
         # user_data is in-memory only, so it is lost on restart.
         await query.message.reply_text(NO_ANALYSIS_MESSAGE)
         return
-
-    await query.message.reply_text(CONFIRMED_MESSAGE)
 
     timer = StageTimer()
     usda_client = get_usda_client()
@@ -398,7 +1012,48 @@ async def handle_portion_callback(
         usda_seconds,
     )
 
-    await query.message.reply_text(format_nutrition(meal))
+    context.user_data[MEAL_NUTRITION_KEY] = meal
+    await query.message.reply_text(
+        format_meal_review(meal), reply_markup=meal_review_keyboard()
+    )
+
+
+async def handle_meal_review_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == MEAL_CANCEL_CALLBACK:
+        _clear_meal_draft(context)
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text("❌ Catatan makan dibatalkan dan tidak disimpan.")
+        return
+
+    meal = context.user_data.get(MEAL_NUTRITION_KEY)
+    if meal is None:
+        await query.message.reply_text(
+            "Data makanan tidak ditemukan lagi. Silakan kirim foto atau masukkan makanan kembali."
+        )
+        return
+
+    if query.data == MEAL_CORRECT_CALLBACK:
+        context.user_data[MEAL_AWAITING_CORRECTION_KEY] = True
+        await query.edit_message_reply_markup(reply_markup=None)
+        await query.message.reply_text(CORRECTION_MESSAGE)
+        return
+
+    input_source = context.user_data.get(MEAL_INPUT_SOURCE_KEY, "text")
+    try:
+        meal_id = get_meal_store().save(update.effective_user.id, input_source, meal)
+    except Exception:
+        logger.exception("Failed to save meal for user_id=%s", update.effective_user.id)
+        await query.message.reply_text("⚠️ Catatan makan gagal disimpan. Silakan coba lagi.")
+        return
+
+    _clear_meal_draft(context)
+    await query.edit_message_reply_markup(reply_markup=None)
+    await query.message.reply_text(f"✅ Catatan makan berhasil disimpan. ID catatan: {meal_id}.")
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -419,12 +1074,24 @@ def build_application() -> Application:
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(profile_conversation())
+    application.add_handler(CommandHandler("target", target_command))
+    application.add_handler(CommandHandler("hariini", today_command))
+    application.add_handler(CommandHandler("catat", record_meal_command))
+    application.add_handler(CommandHandler("batal", cancel_meal_command))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(
         CallbackQueryHandler(
             handle_portion_callback, pattern=f"^({CONFIRM_CALLBACK}|{CORRECT_CALLBACK})$"
         )
     )
+    application.add_handler(
+        CallbackQueryHandler(
+            handle_meal_review_callback,
+            pattern=f"^({MEAL_SAVE_CALLBACK}|{MEAL_CORRECT_CALLBACK}|{MEAL_CANCEL_CALLBACK})$",
+        )
+    )
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_meal_text))
     application.add_error_handler(error_handler)
 
     return application

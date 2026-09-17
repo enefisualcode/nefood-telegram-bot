@@ -58,14 +58,13 @@ class SimpleFoodUnchangedTest(unittest.TestCase):
         self.assertEqual(decomposed.dish_name, "")
         self.assertEqual(decomposed.foods, analysis.foods)
 
-    def test_format_analysis_simple_layout_is_unchanged(self):
+    def test_format_analysis_simple_layout_is_compact(self):
         analysis = FoodAnalysis(foods=[detected("nasi putih", 100, serving_label="1 centong")])
         text = bot.format_analysis(analysis, dish_matcher=MATCHER)
         self.assertIn("🔍 Makanan terdeteksi:", text)
-        self.assertIn("🍽 Nasi putih", text)
-        self.assertIn("Porsi: ±100 g (1 centong)", text)
-        self.assertIn("Identifikasi:", text)
-        self.assertIn("Estimasi porsi:", text)
+        self.assertIn("• Nasi putih — ±100 g (1 centong)", text)
+        self.assertNotIn("Identifikasi:", text)
+        self.assertNotIn("Estimasi porsi:", text)
         self.assertNotIn(bot.VISIBLE_COMPONENTS_LABEL, text)
 
 

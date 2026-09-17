@@ -32,13 +32,22 @@ class Nutrition:
     protein: float = 0.0
     carbs: float = 0.0
     fat: float = 0.0
+    fiber: float | None = None
+    added_sugar: float | None = None
+    sodium: float | None = None
 
     def __add__(self, other: "Nutrition") -> "Nutrition":
+        def add_optional(left: float | None, right: float | None) -> float | None:
+            return left + right if left is not None and right is not None else None
+
         return Nutrition(
             calories=self.calories + other.calories,
             protein=self.protein + other.protein,
             carbs=self.carbs + other.carbs,
             fat=self.fat + other.fat,
+            fiber=add_optional(self.fiber, other.fiber),
+            added_sugar=add_optional(self.added_sugar, other.added_sugar),
+            sodium=add_optional(self.sodium, other.sodium),
         )
 
     def rounded(self) -> "Nutrition":
@@ -48,6 +57,13 @@ class Nutrition:
             protein=_round_half_up(self.protein, 1),
             carbs=_round_half_up(self.carbs, 1),
             fat=_round_half_up(self.fat, 1),
+            fiber=_round_half_up(self.fiber, 1) if self.fiber is not None else None,
+            added_sugar=(
+                _round_half_up(self.added_sugar, 1)
+                if self.added_sugar is not None
+                else None
+            ),
+            sodium=_round_half_up(self.sodium, 1) if self.sodium is not None else None,
         )
 
 
@@ -115,11 +131,18 @@ def scale(source, grams: float) -> Nutrition:
     USDA record - since the arithmetic is identical.
     """
     factor = grams / 100.0
+    def scaled_optional(name: str) -> float | None:
+        value = getattr(source, name, None)
+        return value * factor if value is not None else None
+
     return Nutrition(
         calories=source.calories_per_100g * factor,
         protein=source.protein_per_100g * factor,
         carbs=source.carbs_per_100g * factor,
         fat=source.fat_per_100g * factor,
+        fiber=scaled_optional("fiber_per_100g"),
+        added_sugar=scaled_optional("added_sugar_per_100g"),
+        sodium=scaled_optional("sodium_mg_per_100g"),
     )
 
 
@@ -216,9 +239,9 @@ async def calculate_meal(
 
     items = list(await asyncio.gather(*(resolve_food(food, matcher, usda) for food in foods)))
 
-    total = Nutrition()
+    total: Nutrition | None = None
     for item in items:
         if item.status == COUNTED:
-            total = total + item.nutrition
+            total = item.nutrition if total is None else total + item.nutrition
 
-    return MealNutrition(items=items, total=total)
+    return MealNutrition(items=items, total=total or Nutrition())
